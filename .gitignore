@@ -30,4 +30,5 @@
 
 # AI tools
 graft/
+.ignore
 reports/

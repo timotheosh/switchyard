@@ -2,107 +2,103 @@
 :PROPERTIES:
 :CUSTOM_ID: selfdidacticswitchyard
 :END:
-FIXME: my new application.
+
+Switchyard is a non-interactive Clojure CLI that loads a specification
+document for processing. Specifications may use Markdown or Org format.
 
 ** Installation
 :PROPERTIES:
 :CUSTOM_ID: installation
 :END:
-Download from https://github.com/selfdidactic/switchyard
+Clone or download the project from
+https://github.com/selfdidactic/switchyard and install Clojure CLI.
 
 ** Usage
 :PROPERTIES:
 :CUSTOM_ID: usage
 :END:
-FIXME: explanation
-
-Run the project directly, via =:exec-fn=:
+Run the CLI from source:
 
 #+begin_example
-$ clojure -X:run-x
-Hello, Clojure!
+$ clojure -M:run-m --spec path/to/spec.md
 #+end_example
 
-Run the project, overriding the name to be greeted:
+A successfully loaded specification produces no output and exits with
+status =0=. The CLI accepts =.md=, =.markdown=, and =.org= files;
+extensions are matched case-insensitively. This version loads the complete
+document but does not yet parse or transform its contents.
 
-#+begin_example
-$ clojure -X:run-x :name '"Someone"'
-Hello, Someone!
-#+end_example
-
-Run the project directly, via =:main-opts=
-(=-m selfdidactic.switchyard=):
+Running without arguments displays help:
 
 #+begin_example
 $ clojure -M:run-m
-Hello, World!
+Usage: switchyard [options]
+...
 #+end_example
 
-Run the project, overriding the name to be greeted:
-
-#+begin_example
-$ clojure -M:run-m Via-Main
-Hello, Via-Main!
-#+end_example
-
-Run the project's tests (they'll fail until you edit them):
-
-#+begin_example
-$ clojure -T:build test
-#+end_example
-
-Run the project's CI pipeline and build an uberjar (this will fail until
-you edit the tests to pass):
+Build the uberjar:
 
 #+begin_example
 $ clojure -T:build ci
 #+end_example
 
-This will produce an updated =pom.xml= file with synchronized
-dependencies inside the =META-INF= directory inside =target/classes= and
-the uberjar in =target=. You can update the version (and SCM tag)
-information in generated =pom.xml= by updating =build.clj=.
-
-If you don't want the =pom.xml= file in your project, you can remove it.
-The =ci= task will still generate a minimal =pom.xml= as part of the
-=uber= task, unless you remove =version= from =build.clj=.
-
-Run that uberjar:
+Then run the same CLI from the generated jar:
 
 #+begin_example
-$ java -jar target/net.clojars.selfdidactic/switchyard-0.1.0-SNAPSHOT.jar
+$ java -jar target/net.clojars.selfdidactic/switchyard-0.1.0-SNAPSHOT.jar --spec path/to/spec.org
+$ java -jar target/net.clojars.selfdidactic/switchyard-0.1.0-SNAPSHOT.jar --version
+switchyard 0.1.0-SNAPSHOT
 #+end_example
 
 ** Options
 :PROPERTIES:
 :CUSTOM_ID: options
 :END:
-FIXME: listing of options this app accepts.
+#+begin_example
+-h, --help       Show help for using the program
+-v, --version    Show the program version
+-s, --spec PATH  Load the specification document at PATH
+#+end_example
 
-** Examples
-:PROPERTIES:
-:CUSTOM_ID: examples
-:END:
-...
+Help takes precedence over every other option. Version takes precedence over
+specification loading and command-line errors when help is not requested.
 
-*** Bugs
+** Exit codes
 :PROPERTIES:
-:CUSTOM_ID: bugs
+:CUSTOM_ID: exit-codes
 :END:
-...
 
-*** Any Other Sections
+- =0=: help or version was displayed, or a specification was loaded
+  successfully.
+- =1=: the specification format is unsupported, the file is unavailable, or
+  the file could not be read.
+- =2=: the command line is invalid, such as an unknown option, missing option
+  value, positional argument, missing specification, or repeated =--spec=.
+
+** Development
 :PROPERTIES:
-:CUSTOM_ID: any-other-sections
+:CUSTOM_ID: development
 :END:
-*** That You Think
-:PROPERTIES:
-:CUSTOM_ID: that-you-think
-:END:
-*** Might be Useful
-:PROPERTIES:
-:CUSTOM_ID: might-be-useful
-:END:
+
+Start a REPL in the =selfdidactic.switchyard= namespace:
+
+#+begin_example
+$ clj -M:repl
+selfdidactic.switchyard=>
+#+end_example
+
+Run the tests:
+
+#+begin_example
+$ clojure -T:build test
+#+end_example
+
+Run the complete CI task and rebuild the uberjar:
+
+#+begin_example
+$ clojure -T:build ci
+#+end_example
+
 ** License
 :PROPERTIES:
 :CUSTOM_ID: license

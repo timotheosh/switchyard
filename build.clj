@@ -1,9 +1,10 @@
 (ns build
   (:refer-clojure :exclude [test])
-  (:require [clojure.tools.build.api :as b]))
+  (:require [clojure.tools.build.api :as b]
+            [selfdidactic.version :as app-version]))
 
 (def lib 'net.clojars.selfdidactic/switchyard)
-(def version "0.1.0-SNAPSHOT")
+(def version app-version/program-version)
 (def main 'selfdidactic.switchyard)
 (def class-dir "target/classes")
 

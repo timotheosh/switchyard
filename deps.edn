@@ -1,11 +1,12 @@
 {:paths ["src" "resources"]
- :deps {org.clojure/clojure {:mvn/version "1.12.6"}}
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
+        org.clojure/tools.cli {:mvn/version "1.4.256"}}
  :aliases
- {:run-m {:main-opts ["-m" "selfdidactic.switchyard"]}
-  :run-x {:ns-default selfdidactic.switchyard
-          :exec-fn greet
-          :exec-args {:name "Clojure"}}
-  :build {:deps {io.github.clojure/tools.build
+ {:repl {:main-opts ["-e" "(do (require 'selfdidactic.switchyard) (in-ns 'selfdidactic.switchyard) nil)"
+                      "-r"]}
+  :run-m {:main-opts ["-m" "selfdidactic.switchyard"]}
+  :build {:extra-paths ["src"]
+          :deps {io.github.clojure/tools.build
                  {:mvn/version "0.10.14"}}
           :ns-default build}
   :test {:extra-paths ["test"]
