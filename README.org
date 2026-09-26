@@ -107,6 +107,6 @@ FIXME: listing of options this app accepts.
 :PROPERTIES:
 :CUSTOM_ID: license
 :END:
-Copyright © 2026 Thawes
+Copyright © 2026 Tim Hawes
 
 Distributed under the [[https://opensource.org/license/mit][MIT License]]
