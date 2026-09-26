@@ -1,2 +1,0 @@
-# switchyard
-Agentic Programming Pipeline

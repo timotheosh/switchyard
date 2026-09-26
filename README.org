@@ -1,0 +1,112 @@
+* selfdidactic/switchyard
+:PROPERTIES:
+:CUSTOM_ID: selfdidacticswitchyard
+:END:
+FIXME: my new application.
+
+** Installation
+:PROPERTIES:
+:CUSTOM_ID: installation
+:END:
+Download from https://github.com/selfdidactic/switchyard
+
+** Usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
+FIXME: explanation
+
+Run the project directly, via =:exec-fn=:
+
+#+begin_example
+$ clojure -X:run-x
+Hello, Clojure!
+#+end_example
+
+Run the project, overriding the name to be greeted:
+
+#+begin_example
+$ clojure -X:run-x :name '"Someone"'
+Hello, Someone!
+#+end_example
+
+Run the project directly, via =:main-opts=
+(=-m selfdidactic.switchyard=):
+
+#+begin_example
+$ clojure -M:run-m
+Hello, World!
+#+end_example
+
+Run the project, overriding the name to be greeted:
+
+#+begin_example
+$ clojure -M:run-m Via-Main
+Hello, Via-Main!
+#+end_example
+
+Run the project's tests (they'll fail until you edit them):
+
+#+begin_example
+$ clojure -T:build test
+#+end_example
+
+Run the project's CI pipeline and build an uberjar (this will fail until
+you edit the tests to pass):
+
+#+begin_example
+$ clojure -T:build ci
+#+end_example
+
+This will produce an updated =pom.xml= file with synchronized
+dependencies inside the =META-INF= directory inside =target/classes= and
+the uberjar in =target=. You can update the version (and SCM tag)
+information in generated =pom.xml= by updating =build.clj=.
+
+If you don't want the =pom.xml= file in your project, you can remove it.
+The =ci= task will still generate a minimal =pom.xml= as part of the
+=uber= task, unless you remove =version= from =build.clj=.
+
+Run that uberjar:
+
+#+begin_example
+$ java -jar target/net.clojars.selfdidactic/switchyard-0.1.0-SNAPSHOT.jar
+#+end_example
+
+** Options
+:PROPERTIES:
+:CUSTOM_ID: options
+:END:
+FIXME: listing of options this app accepts.
+
+** Examples
+:PROPERTIES:
+:CUSTOM_ID: examples
+:END:
+...
+
+*** Bugs
+:PROPERTIES:
+:CUSTOM_ID: bugs
+:END:
+...
+
+*** Any Other Sections
+:PROPERTIES:
+:CUSTOM_ID: any-other-sections
+:END:
+*** That You Think
+:PROPERTIES:
+:CUSTOM_ID: that-you-think
+:END:
+*** Might be Useful
+:PROPERTIES:
+:CUSTOM_ID: might-be-useful
+:END:
+** License
+:PROPERTIES:
+:CUSTOM_ID: license
+:END:
+Copyright © 2026 Thawes
+
+Distributed under the [[https://opensource.org/license/mit][MIT License]]
