@@ -1,8 +1,10 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.6"}
-        org.clojure/tools.cli {:mvn/version "1.4.256"}}
+        org.clojure/tools.cli {:mvn/version "1.4.256"}
+        yogthos/config {:mvn/version "1.2.0"}
+        io.github.tonsky/toml-clj {:mvn/version "0.1.0"}}
  :aliases
- {:repl {:main-opts ["-e" "(do (require 'selfdidactic.switchyard) (in-ns 'selfdidactic.switchyard) nil)"
+ {:repl {:main-opts ["-e" "(do (require 'selfdidactic.cli) (in-ns 'selfdidactic.cli) nil)"
                       "-r"]}
   :run-m {:main-opts ["-m" "selfdidactic.switchyard"]}
   :build {:extra-paths ["src"]

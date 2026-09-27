@@ -21,20 +21,24 @@ Run the CLI from source:
 
 #+begin_example
 $ clojure -M:run-m --spec path/to/spec.md
+{:spec "path/to/spec.md"}
 #+end_example
 
-A successfully loaded specification produces no output and exits with
-status =0=. The CLI accepts =.md=, =.markdown=, and =.org= files;
-extensions are matched case-insensitively. This version loads the complete
-document but does not yet parse or transform its contents.
+The CLI resolves its configuration (see [[#configuration][Configuration]]) and prints the
+resulting complete configuration in EDN. This version does not yet load or
+act on the specification; use =--validate= to check that it can be read.
+Specification files may be =.md=, =.markdown=, or =.org=; extensions are
+matched case-insensitively.
 
-Running without arguments displays help:
+Running without arguments uses the bundled =switchyard.toml=:
 
 #+begin_example
 $ clojure -M:run-m
-Usage: switchyard [options]
-...
+{:spec "resources/sample-project/specification.md"}
 #+end_example
+
+If the configuration is missing a required key, running without arguments
+prints help instead.
 
 Build the uberjar:
 
@@ -55,36 +59,78 @@ switchyard 0.1.0-SNAPSHOT
 :CUSTOM_ID: options
 :END:
 #+begin_example
--h, --help       Show help for using the program
--v, --version    Show the program version
--s, --spec PATH  Load the specification document at PATH
+-h, --help         Show help for using the program
+-v, --version      Show the program version
+-s, --spec PATH    Path to a Markdown or Org specification document
+-c, --config PATH  path to toml config file
+    --validate     validate configuration and print it in edn format
 #+end_example
 
-Help takes precedence over every other option. Version takes precedence over
-specification loading and command-line errors when help is not requested.
+Help takes precedence over every other option (even with an unreadable
+=--config=). Version takes precedence over everything except help.
+
+- =-c, --config PATH= reads the TOML file at PATH. When omitted, the
+  =switchyard.toml= resource on the classpath is used (bundled in
+  =resources/= and in the uberjar); a missing default resource is an empty
+  configuration, but a missing explicit =-c= file is an error.
+- =--validate= reads the effective specification path (from =--spec= or the
+  config file) to confirm it exists, has a supported format, and is
+  readable, then prints the configuration. Errors name the path and where it
+  came from.
+
+** Configuration
+:PROPERTIES:
+:CUSTOM_ID: configuration
+:END:
+The =selfdidactic.config= module loads a TOML file, converts it to an EDN
+map, and reads it through [[https://github.com/yogthos/config][yogthos/config]]. Only keys from the TOML file are
+used; environment variables and system properties do not affect values.
+Command-line options override the file: =--spec= replaces =spec=.
+
+=resources/switchyard.toml=:
+
+#+begin_example
+spec = "resources/sample-project/specification.md"
+#+end_example
+
+The spec path is a filesystem path relative to the working directory.
+
+A configuration is /complete/ when it has every required key (currently
+=spec=, supplied by =--spec= or =spec= in the config file). Behavior, first
+matching row wins:
+
+| Situation                                       | Result                                          |
+|-------------------------------------------------+-------------------------------------------------|
+| missing keys and =--validate=                   | error listing the keys and how to supply them, exit 1 |
+| missing keys, no arguments                      | help, exit 0                                    |
+| missing keys, other arguments                   | usage error listing the missing keys, exit 2    |
+| complete and =--validate=                       | validate the spec, print the configuration, exit 0 |
+| complete                                        | print the configuration in EDN, exit 0          |
 
 ** Exit codes
 :PROPERTIES:
 :CUSTOM_ID: exit-codes
 :END:
 
-- =0=: help or version was displayed, or a specification was loaded
-  successfully.
-- =1=: the specification format is unsupported, the file is unavailable, or
-  the file could not be read.
+- =0=: help, version, or the configuration was displayed.
+- =1=: the config file is missing or invalid, required configuration is
+  missing under =--validate=, or =--validate= could not load the
+  specification (unsupported format, unavailable, or unreadable).
 - =2=: the command line is invalid, such as an unknown option, missing option
-  value, positional argument, missing specification, or repeated =--spec=.
+  value, positional argument, repeated =--spec=, or missing required
+  configuration when other arguments are given.
 
 ** Development
 :PROPERTIES:
 :CUSTOM_ID: development
 :END:
 
-Start a REPL in the =selfdidactic.switchyard= namespace:
+Start a REPL in =selfdidactic.cli= (=selfdidactic.switchyard=
+holds =-main=):
 
 #+begin_example
 $ clj -M:repl
-selfdidactic.switchyard=>
+selfdidactic.cli=>
 #+end_example
 
 Run the tests:
