@@ -1,0 +1,14 @@
+{:harnesses
+ {:hermes
+  {:command "hermes"
+   :model {:parameter "-m"}
+   :skill {:parameter "--skills"
+           :plural true}}
+
+  :claude
+  {:command "claude"
+   :plugin :switchyard.agent/claude}
+
+  :kiro
+  {:command "kiro-cli"
+   :plugin :switchyard.agent/kiro}}}

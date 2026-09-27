@@ -1,0 +1,20 @@
+{:agents
+ {:test-writer
+  {:harness :hermes
+   :model "~deepseek/deepseek-pro-latest"
+   :skills [:acd :clojure :testing]}
+
+  :implementer
+  {:harness :hermes
+   :model "~deepseek/deepseek-pro-latest"
+   :skills [:acd :clojure]}
+
+  :reviewer
+  {:harness :hermes
+   :model "~deepseek/deepseek-flash-latest"
+   :skills [:acd :clojure :review]}
+
+  :flow-diagrammer
+  {:harness :hermes
+   :model "~deepseek/deepseek-flash-latest"
+   :skills [:diagrammer]}}}

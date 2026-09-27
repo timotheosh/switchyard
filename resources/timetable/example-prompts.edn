@@ -1,0 +1,15 @@
+{:prompts
+ {:test-writer
+  {:path "prompts/test-writer.md"}
+
+  :implementer
+  {:path "prompts/implementer.md"}
+
+  :correctness-review
+  {:path "prompts/correctness-review.md"}
+
+  :maintainability-review
+  {:path "prompts/maintainability-review.md"}
+
+  :flow-diagrammer
+  {:path "prompts/flow-diagrammer"}}}
