@@ -1,0 +1,18 @@
+{:pipelines
+ {:development
+  {:steps
+   [{:agent :test-writer
+     :prompt :test-writer}
+
+    {:agent :implementer
+     :prompt :implementer
+     :callback :test-writer}
+
+    {:agent :concurrent
+     :thread [{:agent :reviewer
+               :prompt :correctness-review}
+              {:agent :reviewer
+               :prompt :maintainability-review}]
+     :callback :test-writer}
+    {:agent :flow-diagram
+     :prompt :flow-diagrammer}]}}}

@@ -1,0 +1,15 @@
+{:skills
+ {:acd
+  {:path "skills/acd"}
+
+  :clojure
+  {:path "skills/clojure"}
+
+  :testing
+  {:path "skills/testing"}
+
+  :review
+  {:path "skills/review"}
+
+  :diagrammer
+  {:path "skills/diagrammer"}}}

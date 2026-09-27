@@ -78,6 +78,60 @@ Help takes precedence over every other option (even with an unreadable
   readable, then prints the configuration. Errors name the path and where it
   came from.
 
+** Timetable
+:PROPERTIES:
+:CUSTOM_ID: timetable
+:END:
+A timetable describes what Switchyard runs: harnesses, agents, skills,
+prompts, and pipelines. It is written as EDN maps in any number of files.
+The files together form *one logical timetable*; file names and boundaries
+carry no meaning. The example files in =resources/timetable= split it by
+root key, but a single =switchyard.edn= works equally well, as does any
+grouping (=common.edn=, =clojure.edn=, =development.edn=).
+
+Load a directory with =selfdidactic.timetable/load-dir=: it reads every
+=*.edn= file in sorted name order, merges them, and validates the result.
+
+*** Merging
+Fragments are merged recursively. When both values are maps they merge;
+otherwise the later value replaces the earlier one. Vectors are replaced,
+never concatenated, and a later =nil= replaces a map.
+
+#+begin_example
+;; base.edn                          ;; override.edn
+{:agents                             {:agents
+ {:reviewer                           {:reviewer
+  {:harness :hermes                    {:model "~anthropic/claude-sonnet"}}}}
+   :model "~deepseek/flash"
+   :skills [:acd :review]}}}
+
+;; merged
+{:agents
+ {:reviewer {:harness :hermes
+             :model "~anthropic/claude-sonnet"
+             :skills [:acd :review]}}}
+#+end_example
+
+Because load order decides conflicts, numeric prefixes make a handy
+override convention: =00-base.edn=, =10-clojure.edn=, =90-local.edn=.
+
+*** Validation
+Only the merged timetable is validated (with clojure.spec); a single file
+may hold any partial slice. The root keys are a closed set, so an unknown
+key such as =:agent= is reported:
+
+| Root         | Required | Contents                                          |
+|--------------+----------+---------------------------------------------------|
+| =:harnesses= | yes      | name → ={:command string ...}= (extra keys allowed) |
+| =:agents=    | yes      | name → ={:harness kw :model string :skills [kw]}=   |
+| =:prompts=   | yes      | name → ={:path string}=                             |
+| =:pipelines= | yes      | name → ={:steps [{:agent kw ...} ...]}=, at least one step |
+| =:skills=    | no       | name → ={:path string}=                             |
+
+Validation is structural only: references between sections (an agent's
+harness, a step's prompt) are not checked. A failure throws =ex-info= whose
+data lists the =:problems=.
+
 ** Configuration
 :PROPERTIES:
 :CUSTOM_ID: configuration
