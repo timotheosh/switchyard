@@ -5,6 +5,10 @@
    :skill {:parameter "--skills"
            :plural true}}
 
+  :opencode
+  {:command "opencode"
+   :model {:parameter "-m"}}
+
   :claude
   {:command "claude"
    :plugin :switchyard.agent/claude}
