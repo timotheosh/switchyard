@@ -7,7 +7,8 @@
 
   :opencode
   {:command "opencode"
-   :model {:parameter "-m"}}
+   :model {:parameter "-m"}
+   :extra-params ["--auto"]}
 
   :claude
   {:command "claude"

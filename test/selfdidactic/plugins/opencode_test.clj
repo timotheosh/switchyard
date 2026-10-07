@@ -29,6 +29,12 @@
       (testing label
         (is (= expected (sut/build-argv harness agent prompt))))))
 
+  (testing "extra params pass through before the -- separator"
+    (is (= ["opencode" "run" "-m" "m" "--auto" "--print-logs" "--" "p"]
+           (sut/build-argv (assoc harness :extra-params ["--auto" "--print-logs"])
+                           {:model "m"}
+                           "p"))))
+
   (testing "skills are rejected: opencode has no skills flag"
     (is (thrown? clojure.lang.ExceptionInfo
                  (sut/build-argv harness {:model "m" :skills [:acd]} "p"))))

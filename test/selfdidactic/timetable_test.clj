@@ -47,6 +47,11 @@
     (is (not (tt/valid? (assoc-in full [:agents :dev :model] :not-a-string)))))
   (testing "harness definitions stay open"
     (is (tt/valid? (assoc-in full [:harnesses :hermes :plugin] :whatever))))
+  (testing "extra-params is an optional vector of strings"
+    (is (tt/valid? (assoc-in full [:harnesses :hermes :extra-params] ["--auto"])))
+    (is (tt/valid? (assoc-in full [:harnesses :hermes :extra-params] [])))
+    (is (not (tt/valid? (assoc-in full [:harnesses :hermes :extra-params] "--auto"))))
+    (is (not (tt/valid? (assoc-in full [:harnesses :hermes :extra-params] [:auto])))))
   (testing "unknown root key fails and is named"
     (let [e (try (tt/validate (assoc full :agent {}))
                  (catch clojure.lang.ExceptionInfo e e))]
