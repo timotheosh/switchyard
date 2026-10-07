@@ -43,6 +43,12 @@
       (testing label
         (is (= expected (sut/build-argv harness agent prompt))))))
 
+  (testing "extra params pass through before the prompt"
+    (is (= ["hermes" "-m" "m" "--accept-hooks" "--oneshot=p"]
+           (sut/build-argv (assoc harness :extra-params ["--accept-hooks"])
+                           {:model "m"}
+                           "p"))))
+
   (testing "a nil prompt throws"
     (is (thrown? clojure.lang.ExceptionInfo
                  (sut/build-argv harness {:model "m"} nil))))

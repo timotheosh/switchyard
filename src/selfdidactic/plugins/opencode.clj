@@ -7,7 +7,8 @@
 
   Always runs via `opencode run`, which is non-interactive. opencode has no
   skills flag, so a harness without a :skill mapping rejects an agent that
-  supplies skills. The prompt follows -- because opencode would otherwise
+  supplies skills. The harness's :extra-params are passed through verbatim
+  before the prompt. The prompt follows -- because opencode would otherwise
   parse a prompt starting with - as a flag."
   [harness agent prompt]
   (when-not (and (string? prompt) (seq prompt))
@@ -15,4 +16,5 @@
   (vec (concat [(:command harness) "run"]
                (flags/flag-args (:model harness) (:model agent))
                (flags/flag-args (:skill harness) (:skills agent))
+               (:extra-params harness)
                ["--" prompt])))
