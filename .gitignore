@@ -32,3 +32,8 @@
 graft/
 .ignore
 reports/
+
+# BEGIN UML-VIEWER
+.uml-viewer/
+uml-viewer-log.txt
+# END UML-VIEWER
