@@ -78,3 +78,11 @@
 
 (deftest load-dir-test
   (is (tt/valid? (tt/load-dir "resources/timetable"))))
+
+(deftest harness-exit-codes-test
+  (testing ":exit-codes names a harness's exit codes"
+    (is (tt/valid? (assoc-in full [:harnesses :hermes :exit-codes] {137 :oom-killed}))))
+  (testing "codes must be integers and reasons keywords"
+    (is (not (tt/valid? (assoc-in full [:harnesses :hermes :exit-codes] {"137" :oom}))))
+    (is (not (tt/valid? (assoc-in full [:harnesses :hermes :exit-codes] {137 "oom"}))))
+    (is (not (tt/valid? (assoc-in full [:harnesses :hermes :exit-codes] {-1 :oom}))))))

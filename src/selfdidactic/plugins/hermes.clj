@@ -2,6 +2,12 @@
   "Turn a hermes harness/agent/prompt into the hermes command line."
   (:require [selfdidactic.plugins.flags :as flags]))
 
+(def exit-reasons
+  "What hermes's exit codes mean."
+  {1   :no-output
+   2   :failed
+   130 :interrupted})
+
 (defn build-argv
   "Calculate the hermes command line for running one agent against a prompt.
 

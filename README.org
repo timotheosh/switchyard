@@ -169,6 +169,21 @@ whose process is dead is reported as stale and cleared only by
 |    3 | a step's process failed or timed out                      |
 |    4 | a step kept violating its jurisdiction after its retries  |
 
+*** Harness exit codes
+A crashed step is named by its harness's exit codes. Each plugin supplies
+defaults (hermes: 1 =:no-output=, 2 =:failed=, 130 =:interrupted=; opencode:
+1 =:error=, 130 =:interrupted=, 137 =:killed=, 143 =:terminated=), and a
+harness may extend or override them in the timetable:
+
+#+begin_example
+{:harnesses {:opencode {:command "opencode"
+                        :exit-codes {137 :oom-killed}}}}
+#+end_example
+
+The reason appears in the run record and the failure message; an unlisted
+code is =:unknown=. These describe the /agent's/ exit code; switchyard's own
+exit codes are in the table above.
+
 ** Configuration
 :PROPERTIES:
 :CUSTOM_ID: configuration

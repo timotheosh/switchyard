@@ -76,6 +76,7 @@
     (is (= 0 (:step r)))
     (is (= [:crashed] (map :process (attempts r))))
     (is (= 3 (:exit-code (first (attempts r)))))
+    (is (= :boom (:reason (first (attempts r)))) "named by the plugin's exit-reasons")
     (is (not (.exists (io/file (:root env) "src/second"))) "later steps never start")))
 
 (deftest timeout-stops-the-run

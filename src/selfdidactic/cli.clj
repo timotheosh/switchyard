@@ -215,6 +215,7 @@
                               (str/join "\n" (map problem-line problems)))}
       :step-failed {:exit-code exit-step-failed
                     :stderr (str "Error: " where " failed: " (name (:process last-step))
+                                 (some->> (:reason last-step) name (str ", "))
                                  " (agent exit code " (:exit-code last-step) ")\n"
                                  "record: " record)}
       :violations {:exit-code exit-violations

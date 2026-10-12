@@ -290,7 +290,7 @@
            (:kind (sut/resolve-command (sut/parse-command ["--pipeline" "dev"]) {}))))))
 
 (deftest outcome->response-test
-  (let [step {:agent :impl :process :crashed :exit-code 7
+  (let [step {:agent :impl :process :crashed :reason :error :exit-code 7
               :violations [{:violation :no-work}]}]
     (is (= {:exit-code 0} (sut/outcome->response {:status :success})))
     (testing "problems exit 1 and are listed"
@@ -301,6 +301,7 @@
       (let [r (sut/outcome->response {:status :step-failed :step 1 :steps [step] :record "r.edn"})]
         (is (= 3 (:exit-code r)))
         (is (str/includes? (:stderr r) "agent exit code 7"))
+        (is (str/includes? (:stderr r) "crashed, error"))
         (is (str/includes? (:stderr r) "r.edn"))))
     (testing "violations after retries exit 4"
       (let [r (sut/outcome->response {:status :violations :step 0 :steps [step] :record "r.edn"})]
