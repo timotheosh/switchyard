@@ -60,3 +60,7 @@
   (testing "a value with no harness mapping throws"
     (is (thrown? clojure.lang.ExceptionInfo
                  (sut/build-argv (dissoc harness :model) {:model "m"} "p")))))
+
+(deftest build-command-test
+  (is (= {:argv ["hermes" "-m" "m" "--oneshot=p"]}
+         (sut/build-command harness {:model "m"} "p"))))

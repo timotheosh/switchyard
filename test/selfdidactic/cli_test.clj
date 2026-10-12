@@ -12,11 +12,13 @@
 (def expected-help
   (str "Usage: switchyard [options]\n\n"
        "Options:\n"
-       "  -h, --help         Show this help\n"
-       "  -v, --version      Show program version\n"
-       "  -s, --spec PATH    Path to a Markdown or Org specification document\n"
-       "  -c, --config PATH  path to toml config file\n"
-       "      --validate     validate configuration and print it in edn format\n"))
+       "  -h, --help           Show this help\n"
+       "  -v, --version        Show program version\n"
+       "  -s, --spec PATH      Path to a Markdown or Org specification document\n"
+       "  -c, --config PATH    path to toml config file\n"
+       "      --validate       validate configuration and print it in edn format\n"
+       "      --pipeline NAME  run the named pipeline from the branch's timetable\n"
+       "      --force-unlock   clear a stale run lock before running\n"))
 
 (def expected-version "switchyard 0.1.0-SNAPSHOT\n")
 
@@ -156,7 +158,7 @@
                   :contents contents}
                  (sut/load-specification! path-string)))
           (is (= {:exit-code 0
-                  :stdout (str (pr-str {:spec path-string}) "\n")
+                  :stdout (str (pr-str (assoc (config/load-config! nil) :spec path-string)) "\n")
                   :stderr ""}
                  (run-cli ["--validate" "--spec" path-string])))
           (finally
@@ -167,7 +169,7 @@
     (try
       (is (= "" (:contents (sut/load-specification! (str path)))))
       (is (= {:exit-code 0
-              :stdout (str (pr-str {:spec (str path)}) "\n")
+              :stdout (str (pr-str (assoc (config/load-config! nil) :spec (str path))) "\n")
               :stderr ""}
              (run-cli ["--validate" "-s" (str path)])))
       (finally
@@ -270,3 +272,37 @@
   (testing "--spec overrides the file's spec"
     (is (= "--spec-wins.md"
            (:spec (read-string (:stdout (run-cli ["-s" "--spec-wins.md"]))))))))
+
+(deftest pipeline-options
+  (testing "--pipeline and --force-unlock are parsed into the run command"
+    (let [c (sut/parse-command ["--pipeline" "dev" "--force-unlock"])]
+      (is (= :run (:kind c)))
+      (is (= "dev" (:pipeline c)))
+      (is (true? (:force-unlock? c))))
+    (is (false? (:force-unlock? (sut/parse-command ["--pipeline" "dev"])))))
+  (testing "a complete config with --pipeline resolves to :run-pipeline"
+    (let [command (sut/parse-command ["--pipeline" "dev"])]
+      (is (= {:kind :run-pipeline :config {:spec "s.md"} :pipeline-name :dev
+              :force-unlock? false}
+             (sut/resolve-command command {:spec "s.md"})))))
+  (testing "--pipeline still needs the required config"
+    (is (= :usage-error
+           (:kind (sut/resolve-command (sut/parse-command ["--pipeline" "dev"]) {}))))))
+
+(deftest outcome->response-test
+  (let [step {:agent :impl :process :crashed :exit-code 7
+              :violations [{:violation :no-work}]}]
+    (is (= {:exit-code 0} (sut/outcome->response {:status :success})))
+    (testing "problems exit 1 and are listed"
+      (let [r (sut/outcome->response {:status :problems :problems [{:problem :detached-head}]})]
+        (is (= 1 (:exit-code r)))
+        (is (str/includes? (:stderr r) ":detached-head"))))
+    (testing "a failed step exits 3; the agent's own code is only in the message"
+      (let [r (sut/outcome->response {:status :step-failed :step 1 :steps [step] :record "r.edn"})]
+        (is (= 3 (:exit-code r)))
+        (is (str/includes? (:stderr r) "agent exit code 7"))
+        (is (str/includes? (:stderr r) "r.edn"))))
+    (testing "violations after retries exit 4"
+      (let [r (sut/outcome->response {:status :violations :step 0 :steps [step] :record "r.edn"})]
+        (is (= 4 (:exit-code r)))
+        (is (str/includes? (:stderr r) ":no-work"))))))

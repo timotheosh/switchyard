@@ -3,10 +3,19 @@
             [clojure.string :as str]
             [clojure.tools.cli :as cli]
             [selfdidactic.config :as config]
+            [selfdidactic.git :as git]
+            [selfdidactic.pipeline :as pipeline]
+            [selfdidactic.runner :as runner]
+            [selfdidactic.timetable :as timetable]
             [selfdidactic.version :as version])
   (:import [java.io IOException]))
 
 (def program-name "switchyard")
+
+(def exit-problem 1)
+(def exit-usage 2)
+(def exit-step-failed 3)
+(def exit-violations 4)
 
 (def cli-options
   [["-h" "--help" "Show this help"]
@@ -15,7 +24,9 @@
     :update-fn (fnil conj [])
     :multi true]
    ["-c" "--config PATH" "path to toml config file"]
-   [nil "--validate" "validate configuration and print it in edn format"]])
+   [nil "--validate" "validate configuration and print it in edn format"]
+   [nil "--pipeline NAME" "run the named pipeline from the branch's timetable"]
+   [nil "--force-unlock" "clear a stale run lock before running"]])
 
 (defn- usage
   [summary]
@@ -88,12 +99,15 @@
        :no-args? (empty? args)
        :validate? (boolean (:validate options))
        :config-path (:config options)
+       :pipeline (:pipeline options)
+       :force-unlock? (boolean (:force-unlock options))
        :overrides (if (seq spec-paths) {:spec (first spec-paths)} {})})))
 
 (defn resolve-command
   "Calculate what to do from a parsed :run command and the file config.
   First matching row wins, top to bottom."
-  [{:keys [usage no-args? validate? config-path overrides]} file-config]
+  [{:keys [usage no-args? validate? config-path overrides pipeline force-unlock?]}
+   file-config]
   (let [config (config/merge-overrides file-config overrides)
         missing (config/missing-keys config/required-keys config)
         described (config/describe-missing config/required-keys missing)
@@ -114,8 +128,11 @@
       {:kind :validate :config config :path (:spec config)
        :source (:spec sources)}
 
-      ;; Complete config: describe what would run. The next module replaces
-      ;; this branch with the real action.
+      pipeline
+      {:kind :run-pipeline :config config :pipeline-name (keyword pipeline)
+       :force-unlock? force-unlock?}
+
+      ;; Complete config without --pipeline: describe what would run.
       :else
       {:kind :show :config config})))
 
@@ -147,7 +164,7 @@
 
 (defn- usage-error-response
   [{:keys [errors usage]}]
-  {:exit-code 2
+  {:exit-code exit-usage
    :stderr (str "Error:\n"
                 (str/join "\n" (map #(str "  " %) errors))
                 "\n\n"
@@ -155,13 +172,13 @@
 
 (defn- specification-error-response
   [path source message]
-  {:exit-code 1
+  {:exit-code exit-problem
    :stderr (str "Error: unable to read specification '" path
                 "' (from " source "): " message)})
 
 (defn- error-response
   [message]
-  {:exit-code 1
+  {:exit-code exit-problem
    :stderr (str "Error: " message)})
 
 (defn- show-response
@@ -181,6 +198,59 @@
     (catch SecurityException exception
       (specification-error-response path source (.getMessage exception)))))
 
+;; -- Running a pipeline -------------------------------------------------
+
+(defn- problem-line [p] (str "  " (pr-str p)))
+
+(defn outcome->response
+  "Calculate response data from a runner outcome. Success is quiet; the
+  agent's own exit code is reported in the message, never passed through."
+  [{:keys [status problems steps step record]}]
+  (let [last-step (last steps)
+        where (str "step " step " (" (some-> (:agent last-step) name) ")")]
+    (case status
+      :success {:exit-code 0}
+      :problems {:exit-code exit-problem
+                 :stderr (str "Error: cannot run pipeline:\n"
+                              (str/join "\n" (map problem-line problems)))}
+      :step-failed {:exit-code exit-step-failed
+                    :stderr (str "Error: " where " failed: " (name (:process last-step))
+                                 " (agent exit code " (:exit-code last-step) ")\n"
+                                 "record: " record)}
+      :violations {:exit-code exit-violations
+                   :stderr (str "Error: " where " stopped on violations after retries; "
+                                "its changes were rolled back:\n"
+                                (str/join "\n" (map problem-line (:violations last-step)))
+                                "\nrecord: " record)})))
+
+(defn- run-pipeline!
+  "Load the branch's timetable and the specification, then run the pipeline."
+  [{:keys [config pipeline-name force-unlock?]}]
+  (let [root   (git/toplevel ".")
+        branch (git/branch root)]
+    (if-not branch
+      {:status :problems :problems [{:problem :detached-head}]}
+      (let [dir (pipeline/timetable-dir root branch)]
+        (when-not (.isDirectory (io/file dir))
+          (throw (ex-info (str "no timetable directory: " dir) {})))
+        (runner/run-pipeline!
+         {:config config :pipeline-name pipeline-name
+          :timetable (timetable/load-dir dir)
+          :spec (load-specification! (:spec config))
+          :root root :branch branch :dir dir
+          :force-unlock? force-unlock?})))))
+
+(defn- run-pipeline-response!
+  [command]
+  (try
+    (outcome->response (run-pipeline! command))
+    (catch clojure.lang.ExceptionInfo exception
+      (error-response (str (.getMessage exception)
+                           (when-let [ps (:problems (ex-data exception))]
+                             (str "\n" (str/join "\n" (map problem-line ps)))))))
+    (catch IOException exception
+      (error-response (.getMessage exception)))))
+
 (defn execute-command!
   "Perform a command and return response data."
   [{:keys [kind usage config message] :as command}]
@@ -193,7 +263,8 @@
     :missing-keys (error-response message)
     :config-error (error-response message)
     :show (show-response config)
-    :validate (validate-response! command)))
+    :validate (validate-response! command)
+    :run-pipeline (run-pipeline-response! command)))
 
 (defn emit-response!
   "Write response data to the appropriate output streams."
