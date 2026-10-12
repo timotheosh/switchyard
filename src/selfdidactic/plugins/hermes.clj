@@ -19,3 +19,8 @@
                (flags/flag-args (:skill harness) (:skills agent))
                (:extra-params harness)
                [(str "--oneshot=" prompt)])))
+
+(defn build-command
+  "Calculate the hermes command: the prompt travels inside the argv."
+  [harness agent prompt]
+  {:argv (build-argv harness agent prompt)})

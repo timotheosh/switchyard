@@ -6,43 +6,43 @@
   {:command "opencode"
    :model {:parameter "-m"}})
 
-(deftest build-argv-test
-  (testing "model maps to -m and the prompt follows --"
+(deftest build-command-test
+  (testing "model maps to -m and the prompt is delivered on stdin"
     (doseq [[label agent prompt expected]
             [["model and prompt"
               {:model "anthropic/claude-sonnet-4.6"}
               "do the thing"
-              ["opencode" "run" "-m" "anthropic/claude-sonnet-4.6"
-               "--" "do the thing"]]
+              {:argv ["opencode" "run" "-m" "anthropic/claude-sonnet-4.6"]
+               :stdin "do the thing"}]
              ["model absent"
               {}
               "p"
-              ["opencode" "run" "--" "p"]]
+              {:argv ["opencode" "run"] :stdin "p"}]
              ["empty skills supply nothing"
               {:model "m" :skills []}
               "p"
-              ["opencode" "run" "-m" "m" "--" "p"]]
-             ["prompt starting with - stays a message"
+              {:argv ["opencode" "run" "-m" "m"] :stdin "p"}]
+             ["prompt starting with - cannot be mistaken for a flag"
               {:model "m"}
               "-x"
-              ["opencode" "run" "-m" "m" "--" "-x"]]]]
+              {:argv ["opencode" "run" "-m" "m"] :stdin "-x"}]]]
       (testing label
-        (is (= expected (sut/build-argv harness agent prompt))))))
+        (is (= expected (sut/build-command harness agent prompt))))))
 
-  (testing "extra params pass through before the -- separator"
-    (is (= ["opencode" "run" "-m" "m" "--auto" "--print-logs" "--" "p"]
-           (sut/build-argv (assoc harness :extra-params ["--auto" "--print-logs"])
-                           {:model "m"}
-                           "p"))))
+  (testing "extra params pass through"
+    (is (= {:argv ["opencode" "run" "-m" "m" "--auto" "--print-logs"] :stdin "p"}
+           (sut/build-command (assoc harness :extra-params ["--auto" "--print-logs"])
+                              {:model "m"}
+                              "p"))))
 
   (testing "skills are rejected: opencode has no skills flag"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (sut/build-argv harness {:model "m" :skills [:acd]} "p"))))
+                 (sut/build-command harness {:model "m" :skills [:acd]} "p"))))
 
   (testing "a nil prompt throws"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (sut/build-argv harness {:model "m"} nil))))
+                 (sut/build-command harness {:model "m"} nil))))
 
   (testing "an empty-string prompt throws"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (sut/build-argv harness {:model "m"} "")))))
+                 (sut/build-command harness {:model "m"} "")))))

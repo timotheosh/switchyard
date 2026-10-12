@@ -132,6 +132,43 @@ Validation is structural only: references between sections (an agent's
 harness, a step's prompt) are not checked. A failure throws =ex-info= whose
 data lists the =:problems=.
 
+** Running a pipeline
+:PROPERTIES:
+:CUSTOM_ID: running-a-pipeline
+:END:
+#+begin_example
+$ clojure -M:run-m --spec spec.md --pipeline development
+#+end_example
+
+The timetable is read from =<project root>/.switchyard/<branch>/= (the branch
+name has =%= and =/= percent-encoded, so =feat/x= is =feat%2Fx=). Prompt and
+skill paths are relative to that directory. Steps run in order; each agent
+runs in the project root with its prompt file followed by the specification.
+The agent harness is chosen by the =plugin= key of =switchyard.toml=.
+
+Each agent declares =:writes=, a vector of directory prefixes (=["src/"]=).
+Anything not claimed by an agent is writable by none, and =.switchyard/= is
+owned by the runner. Before and after each step the runner snapshots the
+working tree by content; a change outside the agent's =:writes=, or any
+change to HEAD, refs or the index, rolls back the whole step and re-runs the
+agent with the violations in its prompt, up to =:max-violation-retries=
+(default 2). Optional agent keys: =:must-change=, =:timeout-ms=,
+=:expects :findings=.
+
+Success is silent. Every run appends to
+=.switchyard/<branch>/runs/<run-id>.edn= (header, each attempt, terminal
+entry). A =lock= file in the branch directory stops concurrent runs; a lock
+whose process is dead is reported as stale and cleared only by
+=--force-unlock=.
+
+| Exit | Meaning                                                   |
+|------+-----------------------------------------------------------|
+|    0 | success                                                   |
+|    1 | configuration or pipeline problems (nothing was run)      |
+|    2 | usage error                                               |
+|    3 | a step's process failed or timed out                      |
+|    4 | a step kept violating its jurisdiction after its retries  |
+
 ** Configuration
 :PROPERTIES:
 :CUSTOM_ID: configuration
