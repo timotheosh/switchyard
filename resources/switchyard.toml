@@ -1,2 +1,3 @@
 spec = "resources/sample-project/specification.md"
 plugin = "opencode"
+worktree = true

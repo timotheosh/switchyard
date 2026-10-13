@@ -42,7 +42,10 @@
    ["-c" "--config PATH" "path to toml config file"]
    [nil "--validate" "validate configuration and print it in edn format"]
    [nil "--pipeline NAME" "run the named pipeline from the branch's timetable"]
-   [nil "--force-unlock" "clear a stale run lock before running"]])
+   [nil "--force-unlock" "clear a stale run lock before running"]
+   [nil "--[no-]worktree" "run in a new git worktree (the default), or in place"]
+   [nil "--run-id ID" "name the run; re-use that run's worktree if it exists"]
+   [nil "--allow-dirty" "start although the checkout has uncommitted changes"]])
 
 (defn- usage
   [summary]
@@ -117,12 +120,16 @@
        :config-path (:config options)
        :pipeline (:pipeline options)
        :force-unlock? (boolean (:force-unlock options))
+       :worktree (:worktree options)
+       :run-id (:run-id options)
+       :allow-dirty? (boolean (:allow-dirty options))
        :overrides (if (seq spec-paths) {:spec (first spec-paths)} {})})))
 
 (defn resolve-command
   "Calculate what to do from a parsed :run command and the file config.
   First matching row wins, top to bottom."
-  [{:keys [usage no-args? validate? config-path overrides pipeline force-unlock?]}
+  [{:keys [usage no-args? validate? config-path overrides pipeline force-unlock?
+           worktree run-id allow-dirty?]}
    file-config]
   (let [config (config/merge-overrides file-config overrides)
         missing (config/missing-keys config/required-keys config)
@@ -144,9 +151,15 @@
       {:kind :validate :config config :path (:spec config)
        :source (:spec sources)}
 
+      (and pipeline (contains? config :worktree) (not (boolean? (:worktree config))))
+      {:kind :config-error :message "`worktree` must be true or false in the config file"}
+
       pipeline
       {:kind :run-pipeline :config config :pipeline-name (keyword pipeline)
-       :force-unlock? force-unlock?}
+       :force-unlock? force-unlock?
+       ;; The flag wins over the config file; a worktree is the default.
+       :worktree? (if (some? worktree) worktree (get config :worktree true))
+       :run-id run-id :allow-dirty? allow-dirty?}
 
       ;; Complete config without --pipeline: describe what would run.
       :else
@@ -219,13 +232,17 @@
 (defn- problem-line [p] (str "  " (pr-str p)))
 
 (defn outcome->response
-  "Calculate response data from a runner outcome. Success is quiet; the
-  agent's own exit code is reported in the message, never passed through."
-  [{:keys [status problems steps step record]}]
+  "Calculate response data from a runner outcome. Success is quiet apart from
+  the path of the run's worktree; the agent's own exit code is reported in the
+  message, never passed through."
+  [{:keys [status problems steps step record worktree]}]
   (let [last-step (last steps)
-        where (str "step " step " (" (some-> (:agent last-step) name) ")")]
+        where (str "step " step " (" (some-> (:agent last-step) name) ")")
+        trailer (str "\nrecord: " record
+                     (when worktree (str "\nworktree: " (:path worktree))))]
     (case status
-      :success {:exit-code 0}
+      :success (cond-> {:exit-code 0}
+                 worktree (assoc :stdout (str "worktree: " (:path worktree))))
       :problems {:exit-code exit-problem
                  :stderr (str "Error: cannot run pipeline:\n"
                               (str/join "\n" (map problem-line problems)))}
@@ -235,17 +252,18 @@
                                  (if-let [code (:exit-code last-step)]
                                    (str " (agent exit code " code ")")
                                    (str " (" (:err last-step) ")"))
-                                 "\n"
-                                 "record: " record)}
+                                 trailer)}
       :violations {:exit-code exit-violations
-                   :stderr (str "Error: " where " stopped on violations after retries; "
-                                "its changes were rolled back:\n"
+                   :stderr (str "Error: " where
+                                (if (:stopped? last-step)
+                                  " stopped the run: it changed something outside its worktree; nothing there was rolled back:\n"
+                                  " stopped on violations after retries; its changes were rolled back:\n")
                                 (str/join "\n" (map problem-line (:violations last-step)))
-                                "\nrecord: " record)})))
+                                trailer)})))
 
 (defn- run-pipeline!
   "Load the branch's timetable and the specification, then run the pipeline."
-  [{:keys [config pipeline-name force-unlock?]}]
+  [{:keys [config pipeline-name force-unlock? worktree? run-id allow-dirty?]}]
   (let [root   (git/toplevel ".")
         branch (git/branch root)]
     (if-not branch
@@ -258,7 +276,8 @@
           :timetable (timetable/load-dir dir)
           :spec (load-specification! (:spec config))
           :root root :branch branch :dir dir
-          :force-unlock? force-unlock?})))))
+          :force-unlock? force-unlock?
+          :worktree? worktree? :run-id run-id :allow-dirty? allow-dirty?})))))
 
 (defn- run-pipeline-response!
   [command]
