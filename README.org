@@ -165,6 +165,34 @@ entry). A =lock= file in the branch directory stops concurrent runs; a lock
 whose process is dead is reported as stale and cleared only by
 =--force-unlock=.
 
+*** How a step is checked
+Before anything runs, the orchestrator:
+
+1. merges every timetable fragment into one timetable;
+2. collects the =:writes= of every agent the pipeline uses into one sorted
+   /writes list/;
+3. creates any directory in that list that does not exist (listed as
+   =:created-dirs= in the run record's header). A prefix that names an existing
+   file is a problem, not a directory to create.
+
+Then, for each step (and for each retry of it):
+
+4. it snapshots the whole working tree by content, and records a tree hash for
+   each directory in the writes list (=:writes-trees=, nil for an empty or
+   missing directory);
+5. the agent runs. Afterwards the orchestrator checks that nothing changed
+   outside the agent's own =:writes=: other agents' directories and paths nobody
+   claims (=deps.edn=, =resources/=, CI config) included;
+6. if anything unauthorized changed, it rolls back the whole step, the
+   authorized changes too, and re-runs the agent with the reasons in its
+   prompt, up to =:max-violation-retries=;
+7. otherwise the step's changes stay, its snapshot becomes the baseline for the
+   next agent, and the next agent runs.
+
+Git cannot see an empty directory, so the orchestrator recreates any writes
+directory an agent removed or a rollback pruned; integrity of a directory means
+its files.
+
 | Exit | Meaning                                                              |
 |------+----------------------------------------------------------------------|
 |    0 | success                                                              |

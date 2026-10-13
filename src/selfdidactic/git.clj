@@ -79,6 +79,16 @@
          :index    (git-line dir "write-tree")})
       (finally (.delete index)))))
 
+(defn dir-trees
+  "The tree hash of each directory prefix in a snapshot, {prefix hash}. An
+  absent or empty directory is nil: git has no empty trees, and `rev-parse`
+  exits non-zero for a path the tree lacks."
+  [dir snapshot prefixes]
+  (into (sorted-map)
+        (for [p prefixes]
+          [p (git-line-or-nil dir "rev-parse" "--verify" "-q"
+                              (str (:tree snapshot) ":" (str/replace p #"/+$" "")))])))
+
 (defn changed-paths
   "The paths whose content differs between two snapshots' trees."
   [dir before after]

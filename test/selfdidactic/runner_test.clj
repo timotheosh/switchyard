@@ -226,3 +226,62 @@
           r   (run-it! env {:impl (script-agent "true" :harness :ghost)} [step-impl])]
       (is (= :step-failed (:status r)))
       (is (= [:harness-error] (map :process (attempts r)))))))
+
+(defn- header [result] (first (entries result)))
+
+(deftest writes-dirs-are-created-ahead-of-time
+  (let [env (setup!)
+        r   (run-it! env {:impl (script-agent "cat >/dev/null; true"
+                                              :writes ["docs/" "gen/"])
+                          :other (script-agent "true" :writes ["unused/"])}
+                     [step-impl])]
+    (is (= :success (:status r)))
+    (testing "missing directories are created and listed in the header"
+      (is (= ["docs/" "gen/"] (:writes (header r))))
+      (is (= ["docs/" "gen/"] (:created-dirs (header r))))
+      (is (.isDirectory (io/file (:root env) "docs")))
+      (is (.isDirectory (io/file (:root env) "gen"))))
+    (testing "an agent the pipeline does not use gets no directory"
+      (is (not (.exists (io/file (:root env) "unused")))))
+    (testing "existing directories are not reported as created"
+      (let [r2 (run-it! env {:impl (script-agent "cat >/dev/null; true" :writes ["docs/"])}
+                        [step-impl])]
+        (is (= [] (:created-dirs (header r2))))))))
+
+(deftest a-claimed-directory-survives-rollback-and-deletion
+  (testing "a rolled-back attempt leaves the claimed directory in place"
+    (let [env (setup!)
+          r   (run-it! env {:impl (script-agent "cat >/dev/null; echo x > docs/a; echo y > deps.edn"
+                                                :writes ["docs/"] :max-violation-retries 0)}
+                       [step-impl])]
+      (is (= :violations (:status r)))
+      (is (.isDirectory (io/file (:root env) "docs")))
+      (is (empty? (.list (io/file (:root env) "docs"))))))
+  (testing "an agent that removes its own directory gets it back"
+    (let [env (setup!)
+          r   (run-it! env {:impl (script-agent "cat >/dev/null; rm -rf docs" :writes ["docs/"])}
+                       [step-impl])]
+      (is (= :success (:status r)))
+      (is (.isDirectory (io/file (:root env) "docs")))
+      (is (= ["docs/"] (:recreated-dirs (first (attempts r))))))))
+
+(deftest per-directory-trees-are-recorded
+  (let [env (setup!)
+        r   (run-it! env {:impl (script-agent "cat >/dev/null; echo n > src/new.clj"
+                                              :writes ["src/" "docs/"])}
+                     [step-impl])
+        {:keys [before after]} (:writes-trees (first (attempts r)))]
+    (is (= :success (:status r)))
+    (testing "a changed directory has different trees before and after"
+      (is (string? (get before "src/")))
+      (is (not= (get before "src/") (get after "src/"))))
+    (testing "an empty directory has no tree"
+      (is (nil? (get before "docs/")))
+      (is (nil? (get after "docs/"))))))
+
+(deftest a-writes-prefix-that-is-a-file-is-a-problem
+  (let [env (setup!)
+        _   (gt/put! (:root env) "README.md" "x")
+        r   (run-it! env {:impl (script-agent "true" :writes ["README.md/"])} [step-impl])]
+    (is (= [:writes-not-directory] (map :problem (:problems r))))
+    (is (.isFile (io/file (:root env) "README.md")))))
