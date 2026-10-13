@@ -1,19 +1,7 @@
 {:harnesses
- {:hermes
-  {:command "hermes"
-   :model {:parameter "-m"}
-   :skill {:parameter "--skills"
-           :plural true}}
-
-  :opencode
+ {:opencode
   {:command "opencode"
    :model {:parameter "-m"}
-   :extra-params ["--auto"]}
-
-  :claude
-  {:command "claude"
-   :plugin :switchyard.agent/claude}
-
-  :kiro
-  {:command "kiro-cli"
-   :plugin :switchyard.agent/kiro}}}
+   ;; --auto auto-approves every permission opencode would otherwise ask for.
+   ;; An agent's :writes are checked after each step, not enforced during it.
+   :extra-params ["--auto"]}}}

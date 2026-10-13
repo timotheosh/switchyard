@@ -5,7 +5,9 @@
             [clojure.test :refer [deftest is testing]]
             [selfdidactic.git :as git]
             [selfdidactic.git-test :as gt]
-            [selfdidactic.runner :as sut])
+            [selfdidactic.pipeline :as pipeline]
+            [selfdidactic.runner :as sut]
+            [selfdidactic.timetable :as tt])
   (:import [java.net InetAddress]))
 
 (defn- setup!
@@ -178,6 +180,15 @@
         (is (.exists (io/file (:dir env) "lock")))
         (testing "--force-unlock clears it and the run proceeds"
           (is (= :success (:status (run-it! env agents [step-impl] {:force-unlock? true})))))))))
+
+(deftest bundled-example-passes-the-runners-own-checks
+  (let [dir "resources/timetable"
+        timetable (tt/load-dir dir)]
+    (is (empty? (pipeline/pipeline-problems
+                 {:config {:plugin "opencode"} :timetable timetable
+                  :pipeline-name :development :branch "main"
+                  :spec {:path "spec.md" :contents "SPEC"}
+                  :prompt-texts (sut/read-prompts dir timetable :development)})))))
 
 (deftest exit-precedence
   (testing "violations win over a failing process: exhausted retries end in :violations"

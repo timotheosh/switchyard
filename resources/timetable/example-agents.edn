@@ -1,20 +1,24 @@
 {:agents
  {:test-writer
-  {:harness :hermes
-   :model "~deepseek/deepseek-pro-latest"
-   :skills [:acd :clojure :testing]}
+  {:harness :opencode
+   :model "openrouter/~deepseek/deepseek-pro-latest"
+   :writes ["test/"]
+   :must-change true}
 
   :implementer
-  {:harness :hermes
-   :model "~deepseek/deepseek-pro-latest"
-   :skills [:acd :clojure]}
+  {:harness :opencode
+   :model "openrouter/~deepseek/deepseek-pro-latest"
+   :writes ["src/"]
+   :must-change true}
 
   :reviewer
-  {:harness :hermes
-   :model "~deepseek/deepseek-flash-latest"
-   :skills [:acd :clojure :review]}
+  {:harness :opencode
+   :model "openrouter/~deepseek/deepseek-flash-latest"
+   :writes []
+   :expects :findings}
 
   :flow-diagrammer
-  {:harness :hermes
-   :model "~deepseek/deepseek-flash-latest"
-   :skills [:diagrammer]}}}
+  {:harness :opencode
+   :model "openrouter/~deepseek/deepseek-flash-latest"
+   :writes ["doc/"]
+   :must-change true}}}

@@ -85,9 +85,13 @@ Help takes precedence over every other option (even with an unreadable
 A timetable describes what Switchyard runs: harnesses, agents, skills,
 prompts, and pipelines. It is written as EDN maps in any number of files.
 The files together form *one logical timetable*; file names and boundaries
-carry no meaning. The example files in =resources/timetable= split it by
-root key, but a single =switchyard.edn= works equally well, as does any
-grouping (=common.edn=, =clojure.edn=, =development.edn=).
+carry no meaning. The example files in =resources/timetable= (an opencode
+pipeline with its prompt files) split it by root key, but a single
+=switchyard.edn= works equally well, as does any grouping (=common.edn=,
+=clojure.edn=, =development.edn=). To try the example, copy that directory to
+=.switchyard/<branch>/=: prompt and skill paths are relative to it. The
+harness plugins are documented in =doc/plugins/opencode.md= and
+=doc/plugins/hermes.md=.
 
 Load a directory with =selfdidactic.timetable/load-dir=: it reads every
 =*.edn= file in sorted name order, merges them, and validates the result.
@@ -101,15 +105,15 @@ never concatenated, and a later =nil= replaces a map.
 ;; base.edn                          ;; override.edn
 {:agents                             {:agents
  {:reviewer                           {:reviewer
-  {:harness :hermes                    {:model "~anthropic/claude-sonnet"}}}}
-   :model "~deepseek/flash"
-   :skills [:acd :review]}}}
+  {:harness :opencode                  {:model "openrouter/~anthropic/claude-sonnet-latest"}}}}
+   :model "openrouter/~deepseek/deepseek-flash-latest"
+   :writes []}}}
 
 ;; merged
 {:agents
- {:reviewer {:harness :hermes
-             :model "~anthropic/claude-sonnet"
-             :skills [:acd :review]}}}
+ {:reviewer {:harness :opencode
+             :model "openrouter/~anthropic/claude-sonnet-latest"
+             :writes []}}}
 #+end_example
 
 Because load order decides conflicts, numeric prefixes make a handy
@@ -123,7 +127,7 @@ key such as =:agent= is reported:
 | Root         | Required | Contents                                          |
 |--------------+----------+---------------------------------------------------|
 | =:harnesses= | yes      | name → ={:command string ...}= (extra keys allowed) |
-| =:agents=    | yes      | name → ={:harness kw :model string :skills [kw]}=   |
+| =:agents=    | yes      | name → ={:harness kw :model string ...}= (=:skills=, =:writes=, ... below) |
 | =:prompts=   | yes      | name → ={:path string}=                             |
 | =:pipelines= | yes      | name → ={:steps [{:agent kw ...} ...]}=, at least one step |
 | =:skills=    | no       | name → ={:path string}=                             |

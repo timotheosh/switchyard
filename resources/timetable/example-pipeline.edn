@@ -1,18 +1,19 @@
 {:pipelines
  {:development
+  ;; Steps run in order and stop at the first failure. Reviewer findings are
+  ;; recorded in the run record but not yet routed back to earlier steps.
   {:steps
    [{:agent :test-writer
      :prompt :test-writer}
 
     {:agent :implementer
-     :prompt :implementer
-     :callback :test-writer}
+     :prompt :implementer}
 
-    {:agent :concurrent
-     :thread [{:agent :reviewer
-               :prompt :correctness-review}
-              {:agent :reviewer
-               :prompt :maintainability-review}]
-     :callback :test-writer}
-    {:agent :flow-diagram
+    {:agent :reviewer
+     :prompt :correctness-review}
+
+    {:agent :reviewer
+     :prompt :maintainability-review}
+
+    {:agent :flow-diagrammer
      :prompt :flow-diagrammer}]}}}
