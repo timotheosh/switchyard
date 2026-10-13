@@ -12,4 +12,4 @@
   {:path "prompts/maintainability-review.md"}
 
   :flow-diagrammer
-  {:path "prompts/flow-diagrammer"}}}
+  {:path "prompts/flow-diagrammer.md"}}}
