@@ -158,3 +158,27 @@
   (is (= :stale-lock
          (:problem (sut/lock-problem {:pid 1 :host "h"} "h" false))))
   (is (= :run-in-progress (:problem (sut/lock-problem 'pid "h" false)))))
+
+(deftest writes-list-test
+  (testing "the sorted, distinct prefixes of the agents the pipeline uses"
+    (is (= ["src/" "test/"] (sut/writes-list timetable :dev))))
+  (testing "an agent the pipeline does not use contributes nothing"
+    (is (= ["src/" "test/"]
+           (sut/writes-list (assoc-in timetable [:agents :unused]
+                                      {:harness :fake :model "m" :writes ["unused/"]})
+                            :dev))))
+  (testing "empty :writes, repeats and a missing key contribute nothing"
+    (let [t (-> timetable
+                (assoc-in [:agents :ro] {:harness :fake :model "m" :writes []})
+                (assoc-in [:agents :bare] {:harness :fake :model "m"})
+                (assoc-in [:pipelines :dev :steps]
+                          [{:agent :ro :prompt :p} {:agent :bare :prompt :p}
+                           {:agent :impl :prompt :p} {:agent :impl :prompt :p}]))]
+      (is (= ["src/"] (sut/writes-list t :dev)))))
+  (testing "an unknown pipeline has none"
+    (is (= [] (sut/writes-list timetable :nope)))))
+
+(deftest writes-not-directory-test
+  (is (empty? (sut/pipeline-problems (assoc ctx :writes-fs {"src/" :dir "test/" :missing}))))
+  (is (= #{:writes-not-directory}
+         (problem-kinds (assoc ctx :writes-fs {"src/" :file "test/" :dir})))))

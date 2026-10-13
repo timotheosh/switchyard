@@ -73,6 +73,21 @@
       (catch clojure.lang.ExceptionInfo e
         {:problem {:problem :command :step i :message (.getMessage e)}}))))
 
+;; -- Writes list --------------------------------------------------------
+
+(defn writes-list
+  "Calculate the directory prefixes the pipeline's agents may write: the
+  sorted, distinct :writes of every agent a step uses. Known before anything
+  runs, so directories can be created and protected ahead of time."
+  [timetable pipeline-name]
+  (->> (get-in timetable [:pipelines pipeline-name :steps])
+       (keep :agent)
+       distinct
+       (mapcat #(get-in timetable [:agents % :writes]))
+       distinct
+       sort
+       vec))
+
 ;; -- Problems as data ---------------------------------------------------
 
 (defn- prefix-problem [agent-name prefix]
@@ -154,12 +169,15 @@
 (defn pipeline-problems
   "Calculate every problem that makes a pipeline unrunnable, as data (empty
   when runnable). ctx: :config :timetable :pipeline-name :branch :spec
-  :prompt-texts."
-  [{:keys [timetable pipeline-name branch prompt-texts] :as ctx}]
+  :prompt-texts, and :writes-fs ({prefix :dir|:file|:missing}, what exists on
+  disk for each of the writes list)."
+  [{:keys [timetable pipeline-name branch prompt-texts writes-fs] :as ctx}]
   (let [steps (get-in timetable [:pipelines pipeline-name :steps])]
     (vec
      (concat
       (when-not branch [{:problem :detached-head}])
+      (for [[prefix kind] (sort-by key writes-fs) :when (= :file kind)]
+        {:problem :writes-not-directory :prefix prefix})
       (if-not steps
         [{:problem :unknown-pipeline :pipeline pipeline-name}]
         (concat
