@@ -12,10 +12,26 @@
 
 (def program-name "switchyard")
 
-(def exit-problem 1)
-(def exit-usage 2)
-(def exit-step-failed 3)
-(def exit-violations 4)
+;; switchyard's own process exit codes (0 is success). They say what happened to
+;; the run, not what the agent returned: an agent's exit code appears only in
+;; the failure message and the run record.
+(def exit-problem
+  "Nothing was run: the configuration could not be loaded, or the pipeline has
+  problems (unknown references, bad :writes, a plugin that rejects a step...)."
+  1)
+(def exit-usage
+  "The command line is invalid."
+  2)
+(def exit-step-failed
+  "A valid step ran and its agent process crashed, timed out, or could not be
+  started, and left no violations."
+  3)
+(def exit-violations
+  "A step kept breaking its write jurisdiction, or tampering with git, until
+  its retries ran out. Violations are checked before the process outcome: an
+  attempt with violations is rolled back and retried even when its process
+  also failed, and an exhausted retry bound ends in 4, not 3."
+  4)
 
 (def cli-options
   [["-h" "--help" "Show this help"]
@@ -216,7 +232,10 @@
       :step-failed {:exit-code exit-step-failed
                     :stderr (str "Error: " where " failed: " (name (:process last-step))
                                  (some->> (:reason last-step) name (str ", "))
-                                 " (agent exit code " (:exit-code last-step) ")\n"
+                                 (if-let [code (:exit-code last-step)]
+                                   (str " (agent exit code " code ")")
+                                   (str " (" (:err last-step) ")"))
+                                 "\n"
                                  "record: " record)}
       :violations {:exit-code exit-violations
                    :stderr (str "Error: " where " stopped on violations after retries; "

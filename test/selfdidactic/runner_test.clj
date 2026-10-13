@@ -23,7 +23,8 @@
   [{:keys [root dir]} agents steps & [extra]]
   (sut/run-pipeline!
    (merge {:config {:plugin "fake"}
-           :timetable {:harnesses {:fake {:command "sh"}}
+           :timetable {:harnesses {:fake {:command "sh"}
+                                  :ghost {:command "/definitely/not/here"}}
                        :agents agents
                        :prompts {:p {:path "p.md"}}
                        :pipelines {:dev {:steps steps}}}
@@ -188,3 +189,40 @@
                   :pipeline-name :development :branch "main"
                   :spec {:path "spec.md" :contents "SPEC"}
                   :prompt-texts (sut/read-prompts dir timetable :development)})))))
+
+(deftest exit-precedence
+  (testing "violations win over a failing process: exhausted retries end in :violations"
+    (let [env (setup!)
+          r   (run-it! env {:impl (script-agent "cat >/dev/null; echo x > deps.edn; exit 1"
+                                                :max-violation-retries 1)}
+                       [step-impl])]
+      (is (= :violations (:status r)))
+      (is (= [:crashed :crashed] (map :process (attempts r))))
+      (is (every? :restored? (attempts r)))
+      (is (not (.exists (io/file (:root env) "deps.edn"))))))
+  (testing "a crashed attempt with violations is retried, not ended"
+    (let [env (setup!)
+          r   (run-it! env {:impl (script-agent "cat >/dev/null; echo x > deps.edn; exit 1"
+                                                :max-violation-retries 2)}
+                       [step-impl])]
+      (is (= 3 (count (attempts r))))))
+  (testing "a clean crash after a violation is :step-failed"
+    (let [env (setup!)
+          r   (run-it! env {:impl (script-agent (str "if cat | grep -q 'rolled back'; "
+                                                     "then exit 1; else echo x > deps.edn; fi"))}
+                       [step-impl])]
+      (is (= :step-failed (:status r)))
+      (is (= [[:ok [:out-of-jurisdiction]] [:crashed []]]
+             (map (juxt :process #(distinct (map :violation (:violations %)))) (attempts r))))))
+  (testing "a clean attempt after a violation and a crash succeeds"
+    (let [env (setup!)
+          r   (run-it! env {:impl (script-agent (str "if cat | grep -q 'rolled back'; "
+                                                     "then echo ok > src/ok.clj; "
+                                                     "else echo x > deps.edn; exit 1; fi"))}
+                       [step-impl])]
+      (is (= :success (:status r)))))
+  (testing "an agent that cannot be started is a step failure, not a problem"
+    (let [env (setup!)
+          r   (run-it! env {:impl (script-agent "true" :harness :ghost)} [step-impl])]
+      (is (= :step-failed (:status r)))
+      (is (= [:harness-error] (map :process (attempts r)))))))
