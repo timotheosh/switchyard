@@ -32,6 +32,52 @@
   [root branch]
   (str root "/.switchyard/" (encode-branch branch)))
 
+;; -- Run worktrees ------------------------------------------------------
+
+(def worktrees-dir
+  "The directory under .switchyard/ that holds run worktrees; a branch whose
+  encoded name equals it would collide."
+  "worktrees")
+
+(defn valid-run-id?
+  "A run id becomes a path and a branch component, so it is restricted."
+  [id]
+  (boolean (and (string? id) (re-matches #"[A-Za-z0-9][A-Za-z0-9._-]*" id))))
+
+(defn worktree-name
+  "Calculate the worktree directory name for a run."
+  [encoded-branch run-id]
+  (str encoded-branch "-" run-id))
+
+(defn worktree-branch
+  "Calculate the git branch a run's worktree is created on."
+  [encoded-branch run-id]
+  (str "switchyard/" encoded-branch "/" run-id))
+
+(defn worktree-problems
+  "Calculate the problems that stop a worktree run from being set up. ctx:
+  :worktree? :branch :run-id :allow-dirty? :dirty-paths and :worktree-facts
+  ({:registered? :dir-exists? :branch-exists? :ref-conflicts}). A worktree that
+  is already registered is re-used, so it skips the conflict and dirty checks."
+  [{:keys [worktree? branch run-id allow-dirty? dirty-paths worktree-facts]}]
+  (when worktree?
+    (let [{:keys [registered? dir-exists? branch-exists? ref-conflicts]} worktree-facts]
+      (concat
+       (when (and branch (= worktrees-dir (encode-branch branch)))
+         [{:problem :reserved-branch-name :branch branch}])
+       (when-not (valid-run-id? run-id)
+         [{:problem :invalid-run-id :run-id run-id}])
+       (when (and (valid-run-id? run-id) (not registered?))
+         (concat
+          (when dir-exists?
+            [{:problem :worktree-conflict :reason :unregistered-directory}])
+          (when branch-exists?
+            [{:problem :worktree-conflict :reason :branch-without-worktree}])
+          (for [r ref-conflicts]
+            {:problem :worktree-conflict :reason :ref-conflict :ref r})))
+       (when (and (seq dirty-paths) (not allow-dirty?) (not registered?))
+         [{:problem :dirty-checkout :paths (vec dirty-paths)}])))))
+
 ;; -- Prompt composition -------------------------------------------------
 
 (defn render-context
@@ -176,6 +222,7 @@
     (vec
      (concat
       (when-not branch [{:problem :detached-head}])
+      (worktree-problems ctx)
       (for [[prefix kind] (sort-by key writes-fs) :when (= :file kind)]
         {:problem :writes-not-directory :prefix prefix})
       (if-not steps
@@ -239,6 +286,27 @@
                (when (and (:must-change agent) (empty? changed))
                  [{:violation :no-work}])
                (output-violations agent parsed))))
+
+(def stop-kinds
+  "Violations that end the run instead of rolling the step back: they happen
+  outside the agent's worktree, where a rollback could destroy your own work
+  (the main checkout) or is meaningless (the shared git directory)."
+  #{:main-checkout-modified :git-dir-modified})
+
+(defn stop-violation? [v] (contains? stop-kinds (:violation v)))
+
+(defn watcher-violations
+  "Calculate the violations seen outside the worktree. ctx: :state-changed and
+  :main-changed (paths), :git-dir-before and :git-dir-after ({path hash}).
+  Changes to the runner's own state are out of jurisdiction like any other
+  path and are restored; the others stop the run."
+  [{:keys [state-changed main-changed git-dir-before git-dir-after]}]
+  (vec (concat
+        (for [p state-changed] {:violation :out-of-jurisdiction :path p})
+        (for [p main-changed] {:violation :main-checkout-modified :path p})
+        (for [p (sort (distinct (concat (keys git-dir-before) (keys git-dir-after))))
+              :when (not= (get git-dir-before p) (get git-dir-after p))]
+          {:violation :git-dir-modified :path (str ".git/" p)}))))
 
 (defn step-continues?
   "A step lets the run continue only on a clean process outcome and no

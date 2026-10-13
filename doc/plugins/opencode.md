@@ -47,6 +47,10 @@ The model is `provider/model`. List what your install knows with
 
 ## How it runs
 
+By default the agent's working directory is the run's own git worktree (see
+"Run worktrees" in the README), not your checkout; with `--no-worktree` it is
+the project root.
+
 The command is `opencode run [-m model] [extra-params]`. The prompt (the
 prompt file plus the specification) goes on **stdin**, so a long prompt never
 hits the operating system's argument-length limit and a prompt that starts

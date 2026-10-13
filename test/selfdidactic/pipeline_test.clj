@@ -182,3 +182,48 @@
   (is (empty? (sut/pipeline-problems (assoc ctx :writes-fs {"src/" :dir "test/" :missing}))))
   (is (= #{:writes-not-directory}
          (problem-kinds (assoc ctx :writes-fs {"src/" :file "test/" :dir})))))
+
+(deftest run-id-and-worktree-naming
+  (is (every? sut/valid-run-id? ["r1" "20261013T170516Z-ab12cd" "a.b_c-d"]))
+  (is (not-any? sut/valid-run-id? [nil "" "a/b" "../x" ".hidden" "-x" "a b" "r1\n"]))
+  (is (= "feat%2Fx-r1" (sut/worktree-name "feat%2Fx" "r1")))
+  (is (= "switchyard/feat%2Fx/r1" (sut/worktree-branch "feat%2Fx" "r1"))))
+
+(deftest worktree-problems-test
+  (let [base {:worktree? true :branch "main" :run-id "r1" :worktree-facts {}}
+        kinds #(set (map (juxt :problem :reason) (sut/worktree-problems %)))]
+    (is (empty? (sut/worktree-problems base)))
+    (testing "nothing is checked when running in place"
+      (is (empty? (sut/worktree-problems (assoc base :worktree? false :run-id "bad/id" :dirty-paths ["x"])))))
+    (testing "a dirty checkout, unless allowed"
+      (is (= #{[:dirty-checkout nil]} (kinds (assoc base :dirty-paths ["a"]))))
+      (is (empty? (sut/worktree-problems (assoc base :dirty-paths ["a"] :allow-dirty? true)))))
+    (testing "a registered worktree is re-used: no conflict, no dirty check"
+      (is (empty? (sut/worktree-problems
+                   (assoc base :dirty-paths ["a"]
+                          :worktree-facts {:registered? true :dir-exists? true :branch-exists? true})))))
+    (testing "conflicts are named, never guessed"
+      (is (= #{[:worktree-conflict :unregistered-directory]}
+             (kinds (assoc base :worktree-facts {:dir-exists? true}))))
+      (is (= #{[:worktree-conflict :branch-without-worktree]}
+             (kinds (assoc base :worktree-facts {:branch-exists? true}))))
+      (is (= #{[:worktree-conflict :ref-conflict]}
+             (kinds (assoc base :worktree-facts {:ref-conflicts ["switchyard"]})))))
+    (testing "a branch named like the container directory, and a bad run id"
+      (is (contains? (kinds (assoc base :branch "worktrees")) [:reserved-branch-name nil]))
+      (is (contains? (kinds (assoc base :run-id "a/b")) [:invalid-run-id nil])))))
+
+(deftest watcher-violations-test
+  (testing "runner state is out of jurisdiction; the rest stops the run"
+    (is (= [{:violation :out-of-jurisdiction :path ".switchyard/main/runs/x"}
+            {:violation :main-checkout-modified :path "notes.txt"}
+            {:violation :git-dir-modified :path ".git/hooks/pre-commit"}]
+           (sut/watcher-violations
+            {:state-changed [".switchyard/main/runs/x"] :main-changed ["notes.txt"]
+             :git-dir-before {"config" "h"} :git-dir-after {"config" "h" "hooks/pre-commit" "n"}}))))
+  (testing "nothing changed, nothing reported"
+    (is (empty? (sut/watcher-violations {:git-dir-before {"config" "h"} :git-dir-after {"config" "h"}}))))
+  (testing "only the two outside-the-worktree kinds stop a run"
+    (is (every? sut/stop-violation? [{:violation :main-checkout-modified} {:violation :git-dir-modified}]))
+    (is (not-any? sut/stop-violation? [{:violation :out-of-jurisdiction} {:violation :git-tamper}
+                                       {:violation :no-work} {:violation :malformed-output}]))))

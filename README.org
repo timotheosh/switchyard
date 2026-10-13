@@ -159,7 +159,7 @@ agent with the violations in its prompt, up to =:max-violation-retries=
 (default 2). Optional agent keys: =:must-change=, =:timeout-ms=,
 =:expects :findings=.
 
-Success is silent. Every run appends to
+Success is silent apart from the worktree path. Every run appends to
 =.switchyard/<branch>/runs/<run-id>.edn= (header, each attempt, terminal
 entry). A =lock= file in the branch directory stops concurrent runs; a lock
 whose process is dead is reported as stale and cleared only by
@@ -192,6 +192,50 @@ Then, for each step (and for each retry of it):
 Git cannot see an empty directory, so the orchestrator recreates any writes
 directory an agent removed or a rollback pruned; integrity of a directory means
 its files.
+
+*** Run worktrees
+By default each run happens in its own git worktree, so agents never touch
+your checkout:
+
+- The worktree is =<repo root>/.switchyard/worktrees/<branch>-<run-id>= (the
+  branch is encoded as above), on a new branch =switchyard/<branch>/<run-id>=
+  started from =HEAD=. The run id is generated, or given with =--run-id=.
+- Agents run with the worktree as their directory; every snapshot, check and
+  rollback above happens there. The timetable, lock and run record stay in
+  the main checkout's =.switchyard/<branch>/= and are read and written by the
+  orchestrator only.
+- Nothing is committed or removed. The run prints =worktree: <path>= (on
+  failure, with the failure message); review, commit and merge from there, and
+  clean up with =git worktree remove <path>=.
+- =--run-id ID= re-uses that run's worktree when it exists (the pipeline starts
+  again from its first step inside it; the worktree keeps the =HEAD= of the
+  original run, so it does not pick up newer commits). Otherwise it creates
+  one with that id.
+- Because the worktree is built from =HEAD=, agents do not see your
+  uncommitted changes (nor untracked files). A checkout with uncommitted
+  changes to tracked files is therefore a problem, listing them; =--allow-dirty=
+  skips that check but does not make agents see them. Edits under
+  =.switchyard/= do not count.
+- Turn it off with =--no-worktree= or =worktree = false= in =switchyard.toml=
+  (the flag wins); agents then run in the project root.
+
+=.switchyard/= is meant to be committed (it holds the timetable and prompts), so
+switchyard keeps a =.switchyard/.gitignore= for the volatile parts:
+=worktrees/=, =*/lock= and =*/db/=. =db/= is reserved for the orchestrator's own
+state: it is never snapshotted or rolled back.
+
+During a worktree run the orchestrator also watches three things outside the
+worktree, taken before and after every attempt:
+
+| Watched                                                  | A change is                                   |
+|----------------------------------------------------------+-----------------------------------------------|
+| the runner's state, =.switchyard/<branch>/= (not =db/=)   | out of jurisdiction: rolled back, step retried |
+| the rest of the main checkout                            | stops the run (exit 4); never rolled back     |
+| the shared git directory: =config=, =hooks/=, =info/=      | stops the run (exit 4); never rolled back     |
+
+Do not edit the main checkout while a run is in progress. The git directory
+watch also applies with =--no-worktree=. None of this is a sandbox: agents run
+with =--auto= and can still write outside the repository or to ignored paths.
 
 | Exit | Meaning                                                              |
 |------+----------------------------------------------------------------------|
