@@ -161,13 +161,27 @@ entry). A =lock= file in the branch directory stops concurrent runs; a lock
 whose process is dead is reported as stale and cleared only by
 =--force-unlock=.
 
-| Exit | Meaning                                                   |
-|------+-----------------------------------------------------------|
-|    0 | success                                                   |
-|    1 | configuration or pipeline problems (nothing was run)      |
-|    2 | usage error                                               |
-|    3 | a step's process failed or timed out                      |
-|    4 | a step kept violating its jurisdiction after its retries  |
+| Exit | Meaning                                                              |
+|------+----------------------------------------------------------------------|
+|    0 | success                                                              |
+|    1 | nothing was run: configuration or pipeline problems                  |
+|    2 | usage error                                                          |
+|    3 | a valid step ran; its agent crashed, timed out or could not start    |
+|    4 | a step kept breaking its jurisdiction after its retries              |
+
+Exit =1= means no process was started: the config would not load, or the
+pipeline has problems (unknown references, bad =:writes=, a skills mismatch,
+a held lock...). Exit =3= is only for a step that passed that validation and
+then failed to run, including an agent binary that cannot be launched.
+
+When one step both breaks its jurisdiction and fails as a process,
+violations win. An attempt with violations is rolled back and retried even
+if its process also exited non-zero or timed out. If the retries run out the
+run ends with =4=, even when the last attempt also crashed. A step ends with
+=3= only when an attempt has no violations and its process did not succeed;
+a later clean attempt can still turn an earlier violation into success. The
+agent's own exit code is printed in the failure message and kept in the run
+record; it is never switchyard's exit code.
 
 *** Harness exit codes
 A crashed step is named by its harness's exit codes. Each plugin supplies

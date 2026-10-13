@@ -303,6 +303,17 @@
         (is (str/includes? (:stderr r) "agent exit code 7"))
         (is (str/includes? (:stderr r) "crashed, error"))
         (is (str/includes? (:stderr r) "r.edn"))))
+    (testing "an agent that could not start is a step failure (3), not a problem (1)"
+      (let [r (sut/outcome->response
+               {:status :step-failed :step 0 :record "r.edn"
+                :steps [{:agent :impl :process :harness-error :exit-code nil
+                         :err "Cannot run program"}]})]
+        (is (= 3 (:exit-code r)))
+        (is (str/includes? (:stderr r) "Cannot run program"))))
+    (testing "the agent's own exit code is never switchyard's"
+      (is (= 3 (:exit-code (sut/outcome->response
+                            {:status :step-failed :step 0 :record "r"
+                             :steps [(assoc step :exit-code 4)]})))))
     (testing "violations after retries exit 4"
       (let [r (sut/outcome->response {:status :violations :step 0 :steps [step] :record "r.edn"})]
         (is (= 4 (:exit-code r)))
