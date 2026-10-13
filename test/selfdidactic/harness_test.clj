@@ -27,7 +27,7 @@
              (sut/start ["sh" "-c" "pwd"] dir)))))
 
   (testing "a non-zero exit is :crashed with its exit code"
-    (is (= {:process :crashed :exit-code 2 :out "" :err "bad\n"}
+    (is (= {:process :crashed :exit-code 2 :out "" :err "bad\n" :reason :unknown}
            (sh "echo bad >&2; exit 2"))))
 
   (testing "stdin and env reach the child"
@@ -55,3 +55,24 @@
       (is (= :timeout (:process r)))
       (Thread/sleep 400)
       (is (= before (size)) "the child stopped writing once start returned"))))
+
+(deftest classify-reasons-test
+  (let [reasons {1 :error 130 :interrupted}]
+    (testing "a crash is named by the harness's reasons"
+      (is (= :error (:reason (sut/classify {:exit 1 :out "" :err ""} reasons))))
+      (is (= :interrupted (:reason (sut/classify {:exit 130 :out "" :err ""} reasons)))))
+    (testing "an unlisted exit code is :unknown"
+      (is (= :unknown (:reason (sut/classify {:exit 9 :out "" :err ""} reasons))))
+      (is (= :unknown (:reason (sut/classify {:exit 1 :out "" :err ""})))))
+    (testing "only crashes have a reason"
+      (is (not (contains? (sut/classify {:exit 0 :out "" :err ""} reasons) :reason)))
+      (is (not (contains? (sut/classify {:exit 1 :out "" :err "" :timed-out? true} reasons)
+                          :reason))))))
+
+(deftest start-reasons-test
+  (testing "start names a crash with the supplied reasons"
+    (is (= :failed (:reason (sh "exit 2" {:exit-reasons {2 :failed}})))))
+  (testing "a signal death surfaces as 128 + the signal number"
+    (is (= 143 (:exit-code (sh "kill -TERM $$"))))
+    (is (= 137 (:exit-code (sh "kill -KILL $$"))))
+    (is (= 130 (:exit-code (sh "kill -INT $$"))))))

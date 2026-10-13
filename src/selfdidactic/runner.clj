@@ -5,7 +5,8 @@
             [clojure.java.io :as io]
             [selfdidactic.git :as git]
             [selfdidactic.harness :as harness]
-            [selfdidactic.pipeline :as pipeline])
+            [selfdidactic.pipeline :as pipeline]
+            [selfdidactic.plugins :as plugins])
   (:import [java.io File]
            [java.net InetAddress]
            [java.nio.file FileAlreadyExistsException Files OpenOption
@@ -77,6 +78,7 @@
   the restore so a tampering agent cannot roll back the runner's own entry."
   [{:keys [root timetable] :as ctx} i step n context record]
   (let [agent (get-in timetable [:agents (:agent step)])
+        harness (get-in timetable [:harnesses (:harness agent)])
         {:keys [command problem]} (pipeline/step-command ctx i step context)
         before (git/snapshot root)
         run (if problem
@@ -84,6 +86,7 @@
               (harness/start (:argv command) root
                              {:stdin (:stdin command)
                               :env {"GIT_DIR" "/nonexistent"}
+                              :exit-reasons (plugins/exit-reasons (:config ctx) harness)
                               :timeout-ms (or (:timeout-ms agent)
                                               pipeline/default-timeout-ms)}))
         after (git/snapshot root)

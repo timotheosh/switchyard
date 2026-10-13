@@ -4,3 +4,5 @@
 
 (defn build-command [_harness agent prompt]
   {:argv ["sh" "-c" (:model agent)] :stdin prompt})
+
+(def exit-reasons {3 :boom})
