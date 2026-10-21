@@ -25,6 +25,10 @@
 (defn- builder ^ProcessBuilder [argv dir env in out err]
   (let [pb (ProcessBuilder. ^java.util.List (vec argv))]
     (.directory pb (File. ^String dir))
+    ;; ProcessBuilder changes the child's directory but leaves the inherited
+    ;; PWD pointing at the JVM's. Node-based tools (opencode) trust PWD, so an
+    ;; agent started in a worktree would work in the main checkout.
+    (.put (.environment pb) "PWD" (.getAbsolutePath (File. ^String dir)))
     (doseq [[k v] env] (.put (.environment pb) k v))
     (.redirectInput pb (if in (ProcessBuilder$Redirect/from in) ProcessBuilder$Redirect/INHERIT))
     (.redirectOutput pb (ProcessBuilder$Redirect/to out))

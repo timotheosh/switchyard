@@ -3,6 +3,7 @@
   selfdidactic.pipeline (lock, run record, processes, git)."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [selfdidactic.git :as git]
             [selfdidactic.harness :as harness]
             [selfdidactic.pipeline :as pipeline]
@@ -25,7 +26,7 @@
   (apply str (map #(format "%02x" %)
                   (.digest (MessageDigest/getInstance "SHA-256") (.getBytes s "UTF-8")))))
 
-(defn- run-id []
+(defn- generate-run-id []
   (str (.format (DateTimeFormatter/ofPattern "yyyyMMdd'T'HHmmssSSS'Z'")
                 (ZonedDateTime/now ZoneOffset/UTC))
        "-" (format "%06x" (rand-int 0xffffff))))
@@ -91,40 +92,99 @@
                {:text (slurp f)}
                {:error (str "not a readable file: " f)})])))
 
+;; -- Worktree -----------------------------------------------------------
+
+(def ^:private state-ignore-lines
+  "The volatile parts of .switchyard/ (it is otherwise tracked, so the
+  timetable can be committed): run worktrees, locks and the reserved db/."
+  ["worktrees/" "*/lock" "*/db/"])
+
+(defn- worktree-path [root eb run-id]
+  (str root "/.switchyard/" pipeline/worktrees-dir "/" (pipeline/worktree-name eb run-id)))
+
+(defn- worktree-facts
+  "What exists for a run's worktree, as data for the problem check."
+  [root eb run-id]
+  (let [path (worktree-path root eb run-id)]
+    {:registered?    (git/worktree-registered? root path)
+     :dir-exists?    (.exists (io/file path))
+     :branch-exists? (git/branch-exists? root (pipeline/worktree-branch eb run-id))
+     :ref-conflicts  (vec (filter #(git/branch-exists? root %)
+                                  ["switchyard" (str "switchyard/" eb)]))}))
+
+(defn ensure-state-gitignore!
+  "Make sure .switchyard/.gitignore ignores the volatile state, keeping any
+  lines already there."
+  [root]
+  (let [f        (io/file root ".switchyard" ".gitignore")
+        existing (if (.exists f) (str/split-lines (slurp f)) [])
+        missing  (remove (set existing) state-ignore-lines)]
+    (when (seq missing)
+      (spit f (str (when (seq existing) (str (str/join "\n" existing) "\n"))
+                   (str/join "\n" missing) "\n")))))
+
+(defn- setup-worktree!
+  "Create the run's worktree on a new branch, or re-use the registered one."
+  [{:keys [root eb run-id]}]
+  (let [path    (worktree-path root eb run-id)
+        branch  (pipeline/worktree-branch eb run-id)
+        reused? (git/worktree-registered? root path)]
+    (when-not reused? (git/worktree-add! root path branch))
+    {:path path :branch branch :run-id run-id :reused? reused?}))
+
 ;; -- Steps --------------------------------------------------------------
 
 (defn- run-attempt!
   "One attempt: pre-snapshot, agent, post-snapshot, violations, restore when
   needed, then append the attempt to the record. The record is written after
-  the restore so a tampering agent cannot roll back the runner's own entry."
-  [{:keys [root timetable writes] :as ctx} i step n context record]
+  the restore so a tampering agent cannot roll back the runner's own entry.
+  The agent runs in work-dir (a run worktree, or the project root); in a
+  worktree run the runner's state and the main checkout are watched too."
+  [{:keys [root work-dir eb timetable writes worktree?] :as ctx} i step n context record]
   (let [agent (get-in timetable [:agents (:agent step)])
         harness (get-in timetable [:harnesses (:harness agent)])
         {:keys [command problem]} (pipeline/step-command ctx i step context)
-        before (git/snapshot root)
+        watch   #(when worktree? (git/watch-snapshot root eb))
+        before  (git/snapshot work-dir)
+        wbefore (watch)
+        gbefore (git/git-dir-hashes root)
         run (if problem
               {:process :harness-error :exit-code nil :out "" :err (:message problem)}
-              (harness/start (:argv command) root
+              (harness/start (:argv command) work-dir
                              {:stdin (:stdin command)
                               :env {"GIT_DIR" "/nonexistent"}
                               :exit-reasons (plugins/exit-reasons (:config ctx) harness)
                               :timeout-ms (or (:timeout-ms agent)
                                               pipeline/default-timeout-ms)}))
-        after (git/snapshot root)
-        changed (git/changed-paths root before after)
+        after   (git/snapshot work-dir)
+        wafter  (watch)
+        gafter  (git/git-dir-hashes root)
+        changed (git/changed-paths work-dir before after)
+        tree-changes (fn [k] (when worktree?
+                               (git/changed-paths root {:tree (k wbefore)} {:tree (k wafter)})))
+        state-changed (tree-changes :state)
         parsed (pipeline/parse-agent-output (:out run))
-        violations (pipeline/step-violations agent before after changed parsed)
-        _ (when (seq violations) (git/restore! root before after))
-        recreated (ensure-dirs! root writes)
+        violations (into (pipeline/step-violations agent before after changed parsed)
+                         (pipeline/watcher-violations
+                          {:state-changed state-changed
+                           :main-changed (tree-changes :main)
+                           :git-dir-before gbefore :git-dir-after gafter}))
+        retryable? (boolean (some (complement pipeline/stop-violation?) violations))
+        _ (when retryable?
+            (git/restore! work-dir before after)
+            (when (seq state-changed)
+              (git/restore-tree! root (:state wbefore) (:state wafter))))
+        recreated (ensure-dirs! work-dir writes)
         entry (merge run
                      {:entry :attempt :step i :agent (:agent step) :attempt n
                       :argv (:argv command) :stdin (:stdin command)
                       :before before :after after :changed changed
-                      :writes-trees {:before (git/dir-trees root before writes)
-                                     :after  (git/dir-trees root after writes)}
+                      :writes-trees {:before (git/dir-trees work-dir before writes)
+                                     :after  (git/dir-trees work-dir after writes)}
                       :recreated-dirs recreated
                       :verdict :none :violations violations
-                      :restored? (boolean (seq violations))
+                      :restored? retryable?
+                      :stopped? (boolean (some pipeline/stop-violation? violations))
                       :needs-outside-jurisdiction
                       (get-in parsed [:output :needs-outside-jurisdiction] [])})]
     (append! record entry)
@@ -132,7 +192,8 @@
 
 (defn- run-step!
   "Run a step, retrying it after a rollback while violations persist and the
-  agent's retry bound allows. Returns the last attempt with :step-status."
+  agent's retry bound allows. A violation outside the worktree stops the run
+  at once. Returns the last attempt with :step-status."
   [ctx i step record]
   (let [agent (get-in (:timetable ctx) [:agents (:agent step)])
         bound (or (:max-violation-retries agent)
@@ -140,6 +201,9 @@
     (loop [n 0 context {}]
       (let [entry (run-attempt! ctx i step n context record)]
         (cond
+          (:stopped? entry)
+          (assoc entry :step-status :violations)
+
           (empty? (:violations entry))
           (assoc entry :step-status (if (pipeline/step-continues? entry) :ok :step-failed))
 
@@ -150,42 +214,56 @@
           (assoc entry :step-status :violations))))))
 
 (defn- finish!
-  [record status steps step-index]
-  (append! record {:entry :terminal :status status :step step-index})
-  {:status status :step step-index :steps steps :record (str record)})
+  [record status steps step-index worktree]
+  (append! record (cond-> {:entry :terminal :status status :step step-index}
+                    worktree (assoc :worktree worktree)))
+  (cond-> {:status status :step step-index :steps steps :record (str record)}
+    worktree (assoc :worktree worktree)))
 
 (defn- execute!
-  [{:keys [dir root timetable pipeline-name spec writes] :as ctx}]
-  (let [record  (io/file dir "runs" (str (run-id) ".edn"))
-        steps   (get-in timetable [:pipelines pipeline-name :steps])
-        created (ensure-dirs! root writes)]
+  [{:keys [dir root timetable pipeline-name spec writes run-id worktree?] :as ctx}]
+  (let [wt       (when worktree? (setup-worktree! ctx))
+        _        (when wt (ensure-state-gitignore! root))
+        work-dir (if wt (:path wt) root)
+        ctx      (assoc ctx :work-dir work-dir)
+        created  (ensure-dirs! work-dir writes)
+        record   (io/file dir "runs" (str run-id ".edn"))
+        steps    (get-in timetable [:pipelines pipeline-name :steps])]
     (io/make-parents record)
-    (append! record {:entry :header :pipeline pipeline-name
-                     :writes writes :created-dirs created
-                     :spec-path (:path spec)
-                     :spec-sha256 (sha256 (:contents spec))
-                     :timetable-sha256 (sha256 (pr-str (pipeline/canonical timetable)))})
+    (append! record (cond-> {:entry :header :pipeline pipeline-name
+                             :writes writes :created-dirs created
+                             :spec-path (:path spec)
+                             :spec-sha256 (sha256 (:contents spec))
+                             :timetable-sha256 (sha256 (pr-str (pipeline/canonical timetable)))}
+                      wt (assoc :worktree wt)
+                      (:reused? wt) (assoc :resumed? true)))
     (loop [i 0 done []]
       (if (= i (count steps))
-        (finish! record :success done nil)
+        (finish! record :success done nil wt)
         (let [entry (run-step! ctx i (nth steps i) record)
               done  (conj done entry)]
           (if (= :ok (:step-status entry))
             (recur (inc i) done)
-            (finish! record (:step-status entry) done i)))))))
+            (finish! record (:step-status entry) done i wt)))))))
 
 (defn run-pipeline!
   "Run the named pipeline sequentially. ctx: :config :timetable
   :pipeline-name :spec {:path :contents} :root (repo top level) :branch
-  :dir (the branch's timetable directory) :force-unlock?.
+  :dir (the branch's timetable directory) :force-unlock?, and for worktree
+  runs :worktree? :run-id (optional; generated when absent) :allow-dirty?.
   Returns {:status :success|:step-failed|:violations ...} or
   {:status :problems :problems [...]} before anything has run."
-  [{:keys [dir root timetable pipeline-name force-unlock?] :as ctx}]
+  [{:keys [dir root branch timetable pipeline-name force-unlock?] :as ctx}]
   (let [writes   (pipeline/writes-list timetable pipeline-name)
+        run-id   (or (:run-id ctx) (generate-run-id))
+        eb       (when branch (pipeline/encode-branch branch))
+        probe?   (and (:worktree? ctx) root eb (pipeline/valid-run-id? run-id))
         ctx      (assoc ctx
-                        :writes writes
+                        :writes writes :run-id run-id :eb eb
                         :writes-fs (if root (inspect-writes root writes) {})
-                        :prompt-texts (if dir (read-prompts dir timetable pipeline-name) {}))
+                        :prompt-texts (if dir (read-prompts dir timetable pipeline-name) {})
+                        :dirty-paths (when probe? (git/dirty-paths root))
+                        :worktree-facts (when probe? (worktree-facts root eb run-id)))
         problems (pipeline/pipeline-problems ctx)]
     (if (seq problems)
       {:status :problems :problems problems}

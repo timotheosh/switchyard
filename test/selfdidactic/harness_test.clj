@@ -1,5 +1,6 @@
 (ns selfdidactic.harness-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [selfdidactic.harness :as sut])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -76,3 +77,14 @@
     (is (= 143 (:exit-code (sh "kill -TERM $$"))))
     (is (= 137 (:exit-code (sh "kill -KILL $$"))))
     (is (= 130 (:exit-code (sh "kill -INT $$"))))))
+
+(deftest start-sets-pwd-to-the-directory
+  ;; `env` prints the environment exactly as received; a shell would repair a
+  ;; wrong PWD itself and hide the problem.
+  (testing "the child's PWD names the directory it runs in, not the JVM's"
+    (let [dir (temp-dir)]
+      (is (some #{(str "PWD=" dir)}
+                (str/split-lines (:out (sut/start ["env"] dir)))))))
+  (testing "an explicit :env still wins"
+    (is (some #{"PWD=/x"}
+              (str/split-lines (:out (sut/start ["env"] (temp-dir) {:env {"PWD" "/x"}})))))))

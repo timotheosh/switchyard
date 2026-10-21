@@ -108,3 +108,81 @@
     (let [after (sut/snapshot dir)]
       (is (= (:tree before) (:tree (sut/restore! dir before after))))
       (is (.isFile (io/file dir "src/a.clj"))))))
+
+(deftest snapshots-skip-worktrees-and-db
+  (let [dir (make-repo)
+        before (sut/snapshot dir)]
+    (testing "reserved db/ state is never part of a snapshot"
+      (put! dir ".switchyard/main/db/data.mdb" "x")
+      (is (= (:tree before) (:tree (sut/snapshot dir)))))
+    (testing "other state files still are, even though .switchyard/ is ignored"
+      (put! dir ".switchyard/main/runs/r.edn" "x")
+      (is (not= (:tree before) (:tree (sut/snapshot dir)))))
+    (testing "run worktrees are never recorded, as gitlinks or otherwise"
+      (let [s0 (sut/snapshot dir)]
+        (sut/worktree-add! dir (str dir "/.switchyard/worktrees/main-r1") "switchyard/main/r1")
+        (put! dir ".switchyard/worktrees/main-r1/src/x.clj" "x")
+        (is (= (:tree s0) (:tree (sut/snapshot dir))))))))
+
+(deftest watch-snapshots
+  (let [dir (make-repo)
+        w0 (sut/watch-snapshot dir "main")]
+    (testing "a change to runner state moves :state only"
+      (put! dir ".switchyard/main/runs/r.edn" "x")
+      (let [w1 (sut/watch-snapshot dir "main")]
+        (is (not= (:state w0) (:state w1)))
+        (is (= (:main w0) (:main w1)))))
+    (testing "db/ under runner state is not watched"
+      (let [w1 (sut/watch-snapshot dir "main")]
+        (put! dir ".switchyard/main/db/data.mdb" "x")
+        (is (= w1 (sut/watch-snapshot dir "main")))))
+    (testing "a change elsewhere in the main checkout moves :main only"
+      (let [w1 (sut/watch-snapshot dir "main")]
+        (put! dir "notes.txt" "x")
+        (let [w2 (sut/watch-snapshot dir "main")]
+          (is (= (:state w1) (:state w2)))
+          (is (not= (:main w1) (:main w2))))))
+    (testing "state is absent for a branch without a directory"
+      (is (string? (:state (sut/watch-snapshot dir "other")))))
+    (testing "restore-tree! puts runner state back"
+      (let [w1 (sut/watch-snapshot dir "main")]
+        (put! dir ".switchyard/main/runs/r.edn" "tampered")
+        (sut/restore-tree! dir (:state w1) (:state (sut/watch-snapshot dir "main")))
+        (is (= "x" (slurp (io/file dir ".switchyard/main/runs/r.edn"))))))))
+
+(deftest git-dir-hashes-detect-planted-hooks
+  (let [dir (make-repo)
+        h0 (sut/git-dir-hashes dir)]
+    (is (= h0 (sut/git-dir-hashes dir)))
+    (is (contains? h0 "config"))
+    (put! dir ".git/hooks/pre-commit" "#!/bin/sh\nexit 0\n")
+    (is (contains? (sut/git-dir-hashes dir) "hooks/pre-commit"))
+    (let [h1 (sut/git-dir-hashes dir)]
+      (put! dir ".git/config" "[core]\n\tfoo = bar\n")
+      (is (not= (get h1 "config") (get (sut/git-dir-hashes dir) "config"))))
+    (testing "the shared directory is found from inside a worktree too"
+      (sut/worktree-add! dir (str dir "/wt") "wt-branch")
+      (is (= (sut/git-dir-hashes dir) (sut/git-dir-hashes (str dir "/wt")))))))
+
+(deftest dirty-and-worktree-helpers
+  (let [dir (make-repo)]
+    (testing "a clean checkout, and files that are not tracked, are not dirty"
+      (is (= [] (sut/dirty-paths dir)))
+      (put! dir "untracked.txt" "x")
+      (put! dir ".switchyard/main/t.edn" "x")
+      (is (= [] (sut/dirty-paths dir))))
+    (testing "tracked changes are, .switchyard/ edits are not"
+      (put! dir "src/a.clj" "changed")
+      (is (= ["src/a.clj"] (sut/dirty-paths dir))))
+    (testing "worktree creation, registration and branches"
+      (let [path (str dir "/.switchyard/worktrees/main-r1")]
+        (is (not (sut/worktree-registered? dir path)))
+        (is (not (sut/branch-exists? dir "switchyard/main/r1")))
+        (sut/worktree-add! dir path "switchyard/main/r1")
+        (is (sut/worktree-registered? dir path))
+        (is (sut/branch-exists? dir "switchyard/main/r1"))
+        (testing "it starts from HEAD: committed content, not dirty edits"
+          (is (= "a1" (slurp (io/file path "src/a.clj")))))
+        (testing "a plain directory is not a registered worktree"
+          (.mkdirs (io/file dir ".switchyard/worktrees/plain"))
+          (is (not (sut/worktree-registered? dir (str dir "/.switchyard/worktrees/plain")))))))))

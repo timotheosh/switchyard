@@ -51,6 +51,10 @@ name.
 
 ## How it runs
 
+By default the agent's working directory is the run's own git worktree (see
+"Run worktrees" in the README), not your checkout; with `--no-worktree` it is
+the project root.
+
 The command is `hermes [-m model] [--skills name]... [extra-params]
 --oneshot=<prompt>`. Hermes prints only the final response on stdout in this
 mode. The prompt is joined onto `--oneshot=` in a single argument so a prompt

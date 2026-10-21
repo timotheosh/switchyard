@@ -58,26 +58,58 @@
   [dir]
   (git-line-or-nil dir "symbolic-ref" "--short" "-q" "HEAD"))
 
-(defn snapshot
-  "Take a content snapshot of repo root dir: the tree of every file in the
-  working tree (tracked, untracked and dirty, plus .switchyard/ even when
-  ignored), built in a temporary index so the real index is untouched. Also
-  records HEAD, its branch ref, all refs, and the real index by content."
-  [dir]
+(def ^:private volatile-paths
+  "Pathspecs a snapshot never includes: run worktrees, and the reserved
+  orchestrator state directory (`db/`), which must never be rolled back under
+  an open memory-mapped database. `add -f` ignores .gitignore, so they are
+  removed from the temporary index instead."
+  [".switchyard/worktrees" ":(glob).switchyard/*/db/**"])
+
+(defn- tree-of
+  "The tree of the files selected by `adds` (a seq of `git add` argument
+  vectors) less the `removes` pathspecs, built in a temporary index in dir so
+  the real index is untouched."
+  [dir adds removes]
   (let [index (File/createTempFile "switchyard-index-" ".tmp")]
     (.delete index)
     (try
       (let [opts {:env {"GIT_INDEX_FILE" (str index)}}]
-        (git! dir opts "add" "-A")
-        (when (.exists (File. ^String dir ".switchyard"))
-          (git! dir opts "add" "-f" "--" ".switchyard"))
-        {:tree     (str/trim (git! dir opts "write-tree"))
-         :head     (git-line-or-nil dir "rev-parse" "--verify" "-q" "HEAD")
-         :head-ref (git-line-or-nil dir "symbolic-ref" "-q" "HEAD")
-         :refs     (parse-refs (git! dir {} "for-each-ref"
-                                     "--format=%(refname) %(objectname)"))
-         :index    (git-line dir "write-tree")})
+        (doseq [args adds] (apply git! dir opts "add" args))
+        (when (seq adds)
+          (apply git! dir opts "rm" "-r" "-f" "--cached" "-q" "--ignore-unmatch" "--" removes))
+        (str/trim (git! dir opts "write-tree")))
       (finally (.delete index)))))
+
+(defn snapshot
+  "Take a content snapshot of repo root dir: the tree of every file in the
+  working tree (tracked, untracked and dirty, plus .switchyard/ even when
+  ignored, minus worktrees and `db/`), built in a temporary index. Also
+  records HEAD, its branch ref, all refs, and the real index by content."
+  [dir]
+  {:tree     (tree-of dir
+                      (cond-> [["-A" "--" "."]]
+                        (.exists (File. ^String dir ".switchyard"))
+                        (conj ["-f" "--" ".switchyard"]))
+                      volatile-paths)
+   :head     (git-line-or-nil dir "rev-parse" "--verify" "-q" "HEAD")
+   :head-ref (git-line-or-nil dir "symbolic-ref" "-q" "HEAD")
+   :refs     (parse-refs (git! dir {} "for-each-ref"
+                               "--format=%(refname) %(objectname)"))
+   :index    (git-line dir "write-tree")})
+
+(defn watch-snapshot
+  "Take the snapshots of what an agent running in a worktree must not touch in
+  the main checkout `root`, for branch directory `eb`: :state (the runner's
+  own `.switchyard/<eb>`, minus `db/`) and :main (everything else in root
+  except worktrees and `db/`)."
+  [root eb]
+  (let [state (str ".switchyard/" eb)]
+    {:state (tree-of root
+                     (when (.exists (File. ^String root ^String state))
+                       [["-f" "--" state]])
+                     [(str state "/db")])
+     :main  (tree-of root [["-A" "--" "."]]
+                     (conj volatile-paths state))}))
 
 (defn dir-trees
   "The tree hash of each directory prefix in a snapshot, {prefix hash}. An
@@ -137,3 +169,58 @@
       (throw (ex-info "Restore did not reproduce the snapshot"
                       {:kind :restore-failed :expected (:tree before) :actual (:tree now)})))
     now))
+
+(defn restore-tree!
+  "Restore the files that differ between two watcher trees of dir to `before`."
+  [dir before-tree after-tree]
+  (restore-worktree! dir {:tree before-tree}
+                     (changed-paths dir {:tree before-tree} {:tree after-tree})))
+
+(defn- sha256-file [^File f]
+  (apply str (map #(format "%02x" %)
+                  (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                           (java.nio.file.Files/readAllBytes (.toPath f))))))
+
+(defn common-dir
+  "The git directory shared by every worktree of dir's repository."
+  [dir]
+  (let [f (File. (git-line dir "rev-parse" "--git-common-dir"))]
+    (if (.isAbsolute f) f (File. ^String dir (.getPath f)))))
+
+(defn git-dir-hashes
+  "Hash the files an agent could plant a delayed payload in: the shared git
+  directory's config, hooks/ and info/. {relative-path sha256}."
+  [dir]
+  (let [gd (common-dir dir)
+        files (concat [(File. gd "config")]
+                      (for [sub ["hooks" "info"], f (file-seq (File. gd ^String sub))] f))]
+    (into (sorted-map)
+          (for [^File f files :when (.isFile f)]
+            [(str (.relativize (.toPath gd) (.toPath f))) (sha256-file f)]))))
+
+(defn dirty-paths
+  "The tracked paths of dir with uncommitted changes (untracked files and
+  .switchyard/ are not considered)."
+  [dir]
+  (mapv #(subs % 3)
+        (split-nul (git! dir {} "status" "--porcelain" "-z" "--no-renames"
+                         "--untracked-files=no" "--" "." ":(exclude).switchyard"))))
+
+(defn branch-exists?
+  "Whether a local branch of that name exists in dir's repository."
+  [dir branch]
+  (some? (git-line-or-nil dir "show-ref" "--verify" "-q" (str "refs/heads/" branch))))
+
+(defn worktree-registered?
+  "Whether `path` is a registered worktree of dir's repository."
+  [dir path]
+  (let [canon #(.getCanonicalPath (File. ^String %))
+        target (canon path)]
+    (boolean (some #(= target (canon (subs % 9)))
+                   (filter #(str/starts-with? % "worktree ")
+                           (str/split-lines (git! dir {} "worktree" "list" "--porcelain")))))))
+
+(defn worktree-add!
+  "Create a worktree at `path` on a new branch started from HEAD."
+  [dir path branch]
+  (git! dir {} "worktree" "add" "-q" "-b" branch path "HEAD"))

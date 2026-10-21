@@ -18,7 +18,10 @@
        "  -c, --config PATH    path to toml config file\n"
        "      --validate       validate configuration and print it in edn format\n"
        "      --pipeline NAME  run the named pipeline from the branch's timetable\n"
-       "      --force-unlock   clear a stale run lock before running\n"))
+       "      --force-unlock   clear a stale run lock before running\n"
+       "      --[no-]worktree  run in a new git worktree (the default), or in place\n"
+       "      --run-id ID      name the run; re-use that run's worktree if it exists\n"
+       "      --allow-dirty    start although the checkout has uncommitted changes\n"))
 
 (def expected-version "switchyard 0.1.0-SNAPSHOT\n")
 
@@ -283,7 +286,7 @@
   (testing "a complete config with --pipeline resolves to :run-pipeline"
     (let [command (sut/parse-command ["--pipeline" "dev"])]
       (is (= {:kind :run-pipeline :config {:spec "s.md"} :pipeline-name :dev
-              :force-unlock? false}
+              :force-unlock? false :worktree? true :run-id nil :allow-dirty? false}
              (sut/resolve-command command {:spec "s.md"})))))
   (testing "--pipeline still needs the required config"
     (is (= :usage-error
@@ -318,3 +321,41 @@
       (let [r (sut/outcome->response {:status :violations :step 0 :steps [step] :record "r.edn"})]
         (is (= 4 (:exit-code r)))
         (is (str/includes? (:stderr r) ":no-work"))))))
+
+(deftest worktree-options
+  (let [resolve (fn [args config] (sut/resolve-command (sut/parse-command args) config))]
+    (testing "a worktree is the default"
+      (is (true? (:worktree? (resolve ["--pipeline" "dev"] {:spec "s.md"})))))
+    (testing "the config file turns it off"
+      (is (false? (:worktree? (resolve ["--pipeline" "dev"] {:spec "s.md" :worktree false})))))
+    (testing "the flag beats the config file, either way"
+      (is (false? (:worktree? (resolve ["--pipeline" "dev" "--no-worktree"] {:spec "s.md" :worktree true}))))
+      (is (true? (:worktree? (resolve ["--pipeline" "dev" "--worktree"] {:spec "s.md" :worktree false})))))
+    (testing "--run-id and --allow-dirty are carried through"
+      (let [c (resolve ["--pipeline" "dev" "--run-id" "r7" "--allow-dirty"] {:spec "s.md"})]
+        (is (= "r7" (:run-id c)))
+        (is (true? (:allow-dirty? c)))))
+    (testing "a config value that is not a boolean is a config error"
+      (is (= :config-error
+             (:kind (resolve ["--pipeline" "dev"] {:spec "s.md" :worktree "yes"})))))))
+
+(deftest outcome->response-worktree
+  (let [wt {:path "/r/.switchyard/worktrees/main-r1" :branch "b" :run-id "r1" :reused? false}
+        step {:agent :impl :process :crashed :exit-code 1 :violations []}]
+    (testing "success prints only the worktree path; without a worktree it stays silent"
+      (is (= {:exit-code 0 :stdout "worktree: /r/.switchyard/worktrees/main-r1"}
+             (sut/outcome->response {:status :success :worktree wt})))
+      (is (= {:exit-code 0} (sut/outcome->response {:status :success}))))
+    (testing "failures name the worktree"
+      (is (str/includes? (:stderr (sut/outcome->response
+                                   {:status :step-failed :step 0 :steps [step]
+                                    :record "r.edn" :worktree wt}))
+                         "worktree: /r/.switchyard/worktrees/main-r1")))
+    (testing "a run stopped by a change outside its worktree says nothing was rolled back there"
+      (let [r (sut/outcome->response
+               {:status :violations :step 0 :record "r.edn" :worktree wt
+                :steps [(assoc step :stopped? true
+                               :violations [{:violation :main-checkout-modified :path "notes.txt"}])]})]
+        (is (= 4 (:exit-code r)))
+        (is (str/includes? (:stderr r) "nothing there was rolled back"))
+        (is (str/includes? (:stderr r) "notes.txt"))))))

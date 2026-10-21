@@ -285,3 +285,171 @@
         r   (run-it! env {:impl (script-agent "true" :writes ["README.md/"])} [step-impl])]
     (is (= [:writes-not-directory] (map :problem (:problems r))))
     (is (.isFile (io/file (:root env) "README.md")))))
+
+;; -- Worktree runs ---------------------------------------------------------
+;; In a worktree run the agent's cwd is R/.switchyard/worktrees/main-<id>, so
+;; ../../main is the runner's state directory and ../../.. is the main checkout.
+
+(defn- wt-run [env agents steps & [extra]]
+  (run-it! env agents steps (merge {:worktree? true :run-id "r1"} extra)))
+
+(defn- wt-path [env id] (str (:root env) "/.switchyard/worktrees/main-" id))
+
+(defn- kinds [r] (map :violation (:violations (first (attempts r)))))
+
+(defn- problem-kinds [r] (map :problem (:problems r)))
+
+(deftest worktree-run-isolates-the-main-checkout
+  (let [env  (setup!)
+        head (str/trim (gt/sh! (:root env) "git" "rev-parse" "HEAD"))
+        r    (wt-run env {:impl (script-agent "cat >/dev/null; echo new > src/new.clj")} [step-impl])
+        wt   (wt-path env "r1")]
+    (is (= :success (:status r)))
+    (testing "the agent worked in the worktree; the main checkout is untouched"
+      (is (= "new\n" (slurp (io/file wt "src/new.clj"))))
+      (is (not (.exists (io/file (:root env) "src/new.clj"))))
+      (is (str/blank? (gt/sh! (:root env) "git" "status" "--porcelain"))))
+    (testing "it ran on a new branch, and the worktree is reported"
+      (is (str/includes? (gt/sh! (:root env) "git" "branch" "--list" "switchyard/main/r1")
+                         "switchyard/main/r1"))
+      (is (= {:path wt :branch "switchyard/main/r1" :run-id "r1" :reused? false}
+             (:worktree r)))
+      (is (= (:worktree r) (:worktree (header r)))))
+    (testing "nothing is committed or moved"
+      (is (= head (str/trim (gt/sh! (:root env) "git" "rev-parse" "HEAD"))))
+      (is (= head (str/trim (gt/sh! (:root env) "git" "rev-parse" "switchyard/main/r1")))))
+    (testing "setup order: the .gitignore is written before the baselines, so the first attempt is clean"
+      (is (= [] (:violations (first (attempts r)))))
+      (is (= ["worktrees/" "*/lock" "*/db/"]
+             (str/split-lines (slurp (io/file (:root env) ".switchyard/.gitignore"))))))))
+
+(deftest state-gitignore-keeps-existing-lines
+  (let [env (setup!)]
+    (gt/put! (:root env) ".switchyard/.gitignore" "mine\nworktrees/\n")
+    (wt-run env {:impl (script-agent "cat >/dev/null; true")} [step-impl])
+    (is (= ["mine" "worktrees/" "*/lock" "*/db/"]
+           (str/split-lines (slurp (io/file (:root env) ".switchyard/.gitignore")))))))
+
+(deftest dirty-checkout-is-a-problem-unless-allowed
+  (let [agents {:impl (script-agent "cat >/dev/null; true")}]
+    (testing "a tracked, uncommitted change stops the run before anything is created"
+      (let [env (setup!)]
+        (gt/put! (:root env) "src/a.clj" "dirty")
+        (let [r (wt-run env agents [step-impl])]
+          (is (= [:dirty-checkout] (problem-kinds r)))
+          (is (= ["src/a.clj"] (:paths (first (:problems r)))))
+          (is (not (.exists (io/file (wt-path env "r1"))))))))
+    (testing "--allow-dirty only suppresses the check; agents still see HEAD"
+      (let [env (setup!)]
+        (gt/put! (:root env) "src/a.clj" "dirty")
+        (let [r (wt-run env agents [step-impl] {:allow-dirty? true})]
+          (is (= :success (:status r)))
+          (is (= "a1" (slurp (io/file (wt-path env "r1") "src/a.clj")))))))
+    (testing ".switchyard/ edits and untracked files are not dirty"
+      (let [env (setup!)]
+        (gt/put! (:root env) ".switchyard/main/p.md" "edited")
+        (gt/put! (:root env) "untracked.txt" "x")
+        (is (= :success (:status (wt-run env agents [step-impl]))))))))
+
+(deftest run-id-reuses-the-previous-worktree
+  (let [env (setup!)
+        r1  (wt-run env {:impl (script-agent "cat >/dev/null; echo one >> src/log")} [step-impl])
+        r2  (wt-run env {:impl (script-agent "cat >/dev/null; echo two >> src/log")} [step-impl])]
+    (is (= :success (:status r1)))
+    (is (= :success (:status r2)))
+    (is (= "one\ntwo\n" (slurp (io/file (wt-path env "r1") "src/log"))))
+    (is (= (:path (:worktree r1)) (:path (:worktree r2))))
+    (is (true? (:reused? (:worktree r2))))
+    (testing "one record file; the second invocation appends a resumed header"
+      (is (= (:record r1) (:record r2)))
+      (let [es (entries r2)]
+        (is (= [:header :attempt :terminal :header :attempt :terminal] (map :entry es)))
+        (is (true? (:resumed? (nth es 3))))
+        (is (nil? (:resumed? (first es))))))))
+
+(deftest worktree-setup-problems
+  (let [agents {:impl (script-agent "cat >/dev/null; true")}]
+    (testing "an unusable run id"
+      (is (= [:invalid-run-id] (problem-kinds (wt-run (setup!) agents [step-impl] {:run-id "bad/id"})))))
+    (testing "a branch that would collide with the worktrees directory"
+      (is (some #{:reserved-branch-name}
+                (problem-kinds (wt-run (setup!) agents [step-impl] {:branch "worktrees"})))))
+    (testing "a directory that is not a registered worktree is never guessed at"
+      (let [env (setup!)]
+        (.mkdirs (io/file (wt-path env "r2")))
+        (let [r (wt-run env agents [step-impl] {:run-id "r2"})]
+          (is (= [:worktree-conflict] (problem-kinds r)))
+          (is (= :unregistered-directory (:reason (first (:problems r))))))))
+    (testing "a branch without its worktree"
+      (let [env (setup!)]
+        (gt/sh! (:root env) "git" "branch" "switchyard/main/r3")
+        (is (= :branch-without-worktree
+               (:reason (first (:problems (wt-run env agents [step-impl] {:run-id "r3"}))))))))
+    (testing "a branch named switchyard blocks switchyard/<branch>/<id>, caught before git errors"
+      (let [env (setup!)]
+        (gt/sh! (:root env) "git" "branch" "switchyard")
+        (let [r (wt-run env agents [step-impl])]
+          (is (= [:worktree-conflict] (problem-kinds r)))
+          (is (= :ref-conflict (:reason (first (:problems r))))))))))
+
+(deftest runner-state-is-protected-and-restored
+  (let [env (setup!)
+        r   (wt-run env {:impl (script-agent "cat >/dev/null; echo junk > ../../main/runs/zzz.edn"
+                                             :max-violation-retries 0)}
+                    [step-impl])]
+    (is (= :violations (:status r)))
+    (is (= [:out-of-jurisdiction] (kinds r)))
+    (is (= [".switchyard/main/runs/zzz.edn"] (map :path (:violations (first (attempts r))))))
+    (is (not (.exists (io/file (:dir env) "runs/zzz.edn"))))
+    (testing "the record survived the rollback"
+      (is (= [:header :attempt :terminal] (map :entry (entries r)))))))
+
+(deftest the-main-checkout-is-watched-but-never-restored
+  (let [env (setup!)
+        r   (wt-run env {:impl (script-agent "cat >/dev/null; echo x > ../../../notes.txt"
+                                             :max-violation-retries 2)}
+                    [step-impl])]
+    (is (= :violations (:status r)))
+    (testing "the run stops at once: no retry"
+      (is (= 1 (count (attempts r)))))
+    (is (= [{:violation :main-checkout-modified :path "notes.txt"}]
+           (:violations (first (attempts r)))))
+    (testing "nothing in the main checkout is rolled back"
+      (is (.exists (io/file (:root env) "notes.txt"))))))
+
+(deftest the-shared-git-directory-is-watched-in-both-modes
+  (doseq [[label run script]
+          [["worktree" wt-run "cat >/dev/null; echo x > ../../../.git/hooks/pre-commit"]
+           ["in place" run-it! "cat >/dev/null; echo x > .git/hooks/pre-commit"]]]
+    (testing label
+      (let [env (setup!)
+            r   (run env {:impl (script-agent script :max-violation-retries 2)} [step-impl])]
+        (is (= :violations (:status r)))
+        (is (= 1 (count (attempts r))))
+        (is (= [{:violation :git-dir-modified :path ".git/hooks/pre-commit"}]
+               (:violations (first (attempts r)))))
+        (is (.exists (io/file (:root env) ".git/hooks/pre-commit")) "never restored")))))
+
+(deftest reserved-db-state-is-never-snapshotted-or-rolled-back
+  (doseq [[label run script]
+          [["worktree" wt-run (str "cat >/dev/null; mkdir -p ../../main/db; "
+                                   "echo x > ../../main/db/data.mdb; echo y > deps.edn")]
+           ["in place" run-it! (str "cat >/dev/null; mkdir -p .switchyard/main/db; "
+                                    "echo x > .switchyard/main/db/data.mdb; echo y > deps.edn")]]]
+    (testing label
+      (let [env (setup!)
+            r   (run env {:impl (script-agent script :max-violation-retries 0)} [step-impl])]
+        (is (= :violations (:status r)))
+        (testing "only the real violation is reported; db/ is invisible"
+          (is (= [{:violation :out-of-jurisdiction :path "deps.edn"}]
+                 (:violations (first (attempts r))))))
+        (testing "the rollback left db/ alone"
+          (is (= "x\n" (slurp (io/file (:dir env) "db/data.mdb")))))))))
+
+(deftest an-in-place-run-ignores-earlier-run-worktrees
+  (let [env (setup!)]
+    (is (= :success (:status (wt-run env {:impl (script-agent "cat >/dev/null; echo n > src/n.clj")}
+                                     [step-impl]))))
+    (let [r (run-it! env {:impl (script-agent "cat >/dev/null; echo m > src/m.clj")} [step-impl])]
+      (is (= :success (:status r)))
+      (is (= [] (:violations (first (attempts r))))))))
