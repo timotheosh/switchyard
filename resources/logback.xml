@@ -1,0 +1,12 @@
+<configuration>
+  <!-- Logs go to stderr; stdout carries only the command's own result. -->
+  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder>
+      <pattern>%d{HH:mm:ss} %-5level %msg%n</pattern>
+    </encoder>
+  </appender>
+  <root level="${SWITCHYARD_LOG_LEVEL:-INFO}">
+    <appender-ref ref="STDERR"/>
+  </root>
+</configuration>

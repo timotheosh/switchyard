@@ -5,6 +5,7 @@
             [selfdidactic.config :as config]
             [selfdidactic.git :as git]
             [selfdidactic.pipeline :as pipeline]
+            [selfdidactic.progress :as progress]
             [selfdidactic.runner :as runner]
             [selfdidactic.timetable :as timetable]
             [selfdidactic.version :as version])
@@ -45,7 +46,8 @@
    [nil "--force-unlock" "clear a stale run lock before running"]
    [nil "--[no-]worktree" "run in a new git worktree (the default), or in place"]
    [nil "--run-id ID" "name the run; re-use that run's worktree if it exists"]
-   [nil "--allow-dirty" "start although the checkout has uncommitted changes"]])
+   [nil "--allow-dirty" "start although the checkout has uncommitted changes"]
+   [nil "--headless" "no progress line on the terminal (log output is unchanged)"]])
 
 (defn- usage
   [summary]
@@ -123,13 +125,14 @@
        :worktree (:worktree options)
        :run-id (:run-id options)
        :allow-dirty? (boolean (:allow-dirty options))
+       :headless? (boolean (:headless options))
        :overrides (if (seq spec-paths) {:spec (first spec-paths)} {})})))
 
 (defn resolve-command
   "Calculate what to do from a parsed :run command and the file config.
   First matching row wins, top to bottom."
   [{:keys [usage no-args? validate? config-path overrides pipeline force-unlock?
-           worktree run-id allow-dirty?]}
+           worktree run-id allow-dirty? headless?]}
    file-config]
   (let [config (config/merge-overrides file-config overrides)
         missing (config/missing-keys config/required-keys config)
@@ -159,7 +162,7 @@
        :force-unlock? force-unlock?
        ;; The flag wins over the config file; a worktree is the default.
        :worktree? (if (some? worktree) worktree (get config :worktree true))
-       :run-id run-id :allow-dirty? allow-dirty?}
+       :run-id run-id :allow-dirty? allow-dirty? :headless? headless?}
 
       ;; Complete config without --pipeline: describe what would run.
       :else
@@ -261,9 +264,16 @@
                                 (str/join "\n" (map problem-line (:violations last-step)))
                                 trailer)})))
 
+(defn- progress-display
+  "The progress line shows on an interactive terminal unless the run is headless."
+  [headless?]
+  (if (and (not headless?) (System/console))
+    (progress/display System/err)
+    progress/silent))
+
 (defn- run-pipeline!
   "Load the branch's timetable and the specification, then run the pipeline."
-  [{:keys [config pipeline-name force-unlock? worktree? run-id allow-dirty?]}]
+  [{:keys [config pipeline-name force-unlock? worktree? run-id allow-dirty? headless?]}]
   (let [root   (git/toplevel ".")
         branch (git/branch root)]
     (if-not branch
@@ -277,7 +287,8 @@
           :spec (load-specification! (:spec config))
           :root root :branch branch :dir dir
           :force-unlock? force-unlock?
-          :worktree? worktree? :run-id run-id :allow-dirty? allow-dirty?})))))
+          :worktree? worktree? :run-id run-id :allow-dirty? allow-dirty?
+          :progress (progress-display headless?)})))))
 
 (defn- run-pipeline-response!
   [command]
