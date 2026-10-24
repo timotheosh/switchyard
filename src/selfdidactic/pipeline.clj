@@ -233,6 +233,18 @@
          (agent-problems timetable steps)
          (mapcat (fn [i step] (command-problems ctx i step)) (range) steps)))))))
 
+;; -- Stage log messages -------------------------------------------------
+
+(defn stage-started-message
+  "Calculate the log message for the start of stage `index` of `total`."
+  [index total agent]
+  (str "stage " (inc index) "/" total " " (name agent) " started"))
+
+(defn stage-finished-message
+  "Calculate the log message for the end of a stage; status is its :step-status."
+  [index total agent status]
+  (str "stage " (inc index) "/" total " " (name agent) " finished: " (name status)))
+
 ;; -- Violations ---------------------------------------------------------
 
 (defn jurisdiction-violations

@@ -4,10 +4,12 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [clojure.tools.logging :as log]
             [selfdidactic.git :as git]
             [selfdidactic.harness :as harness]
             [selfdidactic.pipeline :as pipeline]
-            [selfdidactic.plugins :as plugins])
+            [selfdidactic.plugins :as plugins]
+            [selfdidactic.progress :as progress])
   (:import [java.io File]
            [java.net InetAddress]
            [java.nio.file FileAlreadyExistsException Files OpenOption
@@ -213,6 +215,27 @@
           :else
           (assoc entry :step-status :violations))))))
 
+(defn- announce!
+  "Log a stage event at info, keeping the progress line clear of the log output
+  and redrawing it afterwards when there is an event to show."
+  [{:keys [progress]} message event]
+  (let [{:keys [clear! draw!]} (or progress progress/silent)]
+    (clear!)
+    (log/info message)
+    (when event (draw! event))))
+
+(defn- run-stage!
+  "Run step i, announcing its start and end."
+  [ctx i step record total]
+  (let [agent (:agent step)
+        event #(hash-map :index i :total total :agent agent :phase %)]
+    (announce! ctx (pipeline/stage-started-message i total agent) (event :running))
+    (let [entry (run-step! ctx i step record)
+          status (:step-status entry)]
+      (announce! ctx (pipeline/stage-finished-message i total agent status)
+                 (when (= :ok status) (event :done)))
+      entry)))
+
 (defn- finish!
   [record status steps step-index worktree]
   (append! record (cond-> {:entry :terminal :status status :step step-index}
@@ -240,7 +263,7 @@
     (loop [i 0 done []]
       (if (= i (count steps))
         (finish! record :success done nil wt)
-        (let [entry (run-step! ctx i (nth steps i) record)
+        (let [entry (run-stage! ctx i (nth steps i) record (count steps))
               done  (conj done entry)]
           (if (= :ok (:step-status entry))
             (recur (inc i) done)
