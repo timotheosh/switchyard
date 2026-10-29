@@ -69,9 +69,8 @@ Exit codes name a crash in the run record and failure message.
 | Code | Reason         | Meaning                                                      |
 |------|----------------|--------------------------------------------------------------|
 | 1    | `:error`       | Every error opencode reports itself: a bad model, missing credentials, a server error, a missing message, a bad flag. They are not distinguishable. |
-| 130  | `:interrupted` | SIGINT. opencode has no signal handlers, so a signal ends it directly. |
+| 130  | `:interrupted` | SIGINT or SIGTERM: opencode 2.x handles both and exits 130. |
 | 137  | `:killed`      | SIGKILL (also how switchyard stops a timed-out process tree). |
-| 143  | `:terminated`  | SIGTERM.                                                     |
 
 Other non-zero codes are `:unknown`. Add your own with `:exit-codes` on the
 harness.
@@ -81,4 +80,4 @@ harness.
 These behaviors were checked against the real `opencode` binary with the free
 `opencode/big-pickle` model: success (exit 0), a bad model (exit 1), stdin
 prompts including a 200 KB prompt, running with `GIT_DIR` pointing nowhere, the
-three signals above, and a violation being rolled back and retried.
+signals above, and a violation being rolled back and retried.

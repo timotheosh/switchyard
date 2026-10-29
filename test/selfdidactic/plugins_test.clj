@@ -22,10 +22,10 @@
   (testing "each plugin supplies its harness's exit-code names"
     (is (= {1 :no-output 2 :failed 130 :interrupted}
            (sut/exit-reasons {:plugin "hermes"} {})))
-    (is (= {1 :error 130 :interrupted 137 :killed 143 :terminated}
+    (is (= {1 :error 130 :interrupted 137 :killed}
            (sut/exit-reasons {:plugin "opencode"} {}))))
   (testing "the harness's :exit-codes extend and override the plugin's"
-    (is (= {1 :auth 130 :interrupted 137 :killed 143 :terminated 9 :oom}
+    (is (= {1 :auth 130 :interrupted 137 :killed 9 :oom}
            (sut/exit-reasons {:plugin "opencode"} {:exit-codes {1 :auth 9 :oom}}))))
   (testing "a plugin without exit-reasons has none"
     (is (= {} (sut/exit-reasons {:plugin "flags"} {})))

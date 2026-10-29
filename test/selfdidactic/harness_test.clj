@@ -9,7 +9,7 @@
   (doseq [[label result expected-process]
           [["success"                    {:exit 0 :out "" :err ""} :ok]
            ["opencode error exit"        {:exit 1 :out "" :err ""} :crashed]
-           ["SIGTERM (opencode: 143)"    {:exit 143 :out "" :err ""} :crashed]
+           ["SIGTERM (opencode: 130)"    {:exit 130 :out "" :err ""} :crashed]
            ["SIGKILL"                    {:exit 137 :out "" :err ""} :crashed]
            ["timed out wins over exit"   {:exit 143 :out "" :err "" :timed-out? true} :timeout]]]
     (testing label

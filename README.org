@@ -262,7 +262,7 @@ record; it is never switchyard's exit code.
 *** Harness exit codes
 A crashed step is named by its harness's exit codes. Each plugin supplies
 defaults (hermes: 1 =:no-output=, 2 =:failed=, 130 =:interrupted=; opencode:
-1 =:error=, 130 =:interrupted=, 137 =:killed=, 143 =:terminated=), and a
+1 =:error=, 130 =:interrupted=, 137 =:killed=), and a
 harness may extend or override them in the timetable:
 
 #+begin_example
