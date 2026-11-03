@@ -90,8 +90,8 @@ pipeline with its prompt files) split it by root key, but a single
 =switchyard.edn= works equally well, as does any grouping (=common.edn=,
 =clojure.edn=, =development.edn=). To try the example, copy that directory to
 =.switchyard/<branch>/=: prompt and skill paths are relative to it. The
-harness plugins are documented in =doc/plugins/opencode.md= and
-=doc/plugins/hermes.md=.
+harness plugins are documented in =doc/plugins/opencode.md=,
+=doc/plugins/hermes.md= and =doc/plugins/kiro.md=.
 
 Load a directory with =selfdidactic.timetable/load-dir=: it reads every
 =*.edn= file in sorted name order, merges them, and validates the result.
@@ -262,7 +262,8 @@ record; it is never switchyard's exit code.
 *** Harness exit codes
 A crashed step is named by its harness's exit codes. Each plugin supplies
 defaults (hermes: 1 =:no-output=, 2 =:failed=, 130 =:interrupted=; opencode:
-1 =:error=, 130 =:interrupted=, 137 =:killed=), and a
+1 =:error=, 130 =:interrupted=, 137 =:killed=; kiro: 1 =:error=,
+3 =:mcp-startup-failed=, 4 =:agent-not-found=, 143 =:interrupted=), and a
 harness may extend or override them in the timetable:
 
 #+begin_example
