@@ -4,4 +4,10 @@
    :model {:parameter "-m"}
    ;; --auto auto-approves every permission opencode would otherwise ask for.
    ;; An agent's :writes are checked after each step, not enforced during it.
-   :extra-params ["--auto"]}}}
+   :extra-params ["--auto"]}
+  :kiro
+  {:command "kiro-cli"
+   :model {:parameter "--model"}
+   ;; Unapproved tool calls are denied (exit 0) under --no-interactive, so
+   ;; pre-approve what the agent needs. See doc/plugins/kiro.md.
+   :extra-params ["--trust-tools=fs_read,fs_write"]}}}
