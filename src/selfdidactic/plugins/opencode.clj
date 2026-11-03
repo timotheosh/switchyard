@@ -5,12 +5,11 @@
 (def exit-reasons
   "What opencode's exit codes mean (probed against the real binary). It exits
   1 for every error it reports itself (bad model, no credentials, server
-  error, missing message, bad flag) and has no signal handlers, so the signals
-  surface as 128 + the signal number."
+  error, missing message, bad flag). SIGINT and SIGTERM both exit 130 (it
+  handles SIGTERM itself); SIGKILL surfaces as 137."
   {1   :error
    130 :interrupted
-   137 :killed
-   143 :terminated})
+   137 :killed})
 
 (defn build-command
   "Calculate the opencode command for running one agent against a prompt:
